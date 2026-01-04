@@ -7,7 +7,7 @@ import io
 import re
 
 # --- 1. CONFIGURATION & API ---
-MY_API_KEY = "MY_API_KEY = st.secrets["GEMINI_API_KEY"]" 
+MY_API_KEY = MY_API_KEY = st.secrets["GEMINI_API_KEY"]
 genai.configure(api_key=MY_API_KEY)
 
 # --- 2. LOGIN SYSTEM (Simple & Effective) ---
