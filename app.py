@@ -73,31 +73,35 @@ if menu == "🚀 AI Scanner":
     if uploaded_file:
         img = Image.open(uploaded_file)
         st.image(img, caption="Document Preview", width=500)
-        
         if st.button("Magic Scan & Save"):
             with st.spinner("AI analyzing your document..."):
-                # Intelligent Prompt
-                prompt = """Identify the content. 
+                # Intelligent Prompt for structured data
+                prompt = """Identify the content.
                 - If it's an INVOICE: extract Date, Vendor, GST Number, Total.
-                - If it's a DATA LIST/TABLE: extract all items into a clear table.
-                Format: Return a clean list with headers."""
+                - If it's a DATA LIST/TABLE: extract all items.
+                
+                IMPORTANT: Return the data ONLY as a JSON list of lists.
+                Example for Invoice: [["Date", "Vendor", "GST", "Total"], ["4-Nov-25", "A R ELECTRONICS", "19ABAFA4229L1ZD", "35,300.00"]]
+                Example for Table: [["Col1", "Col2"], ["Row1Val1", "Row1Val2"]]
+                Do not write any extra text, only the JSON list."""
                 
                 response = model.generate_content([prompt, img])
                 res_text = response.text
                 
-                st.success("Extraction Complete!")
-                st.markdown("### 📋 Extracted Data")
-                st.info(res_text)
-
-                # --- EXCEL DOWNLOAD LOGIC ---
                 try:
-                    # Creating a simple DataFrame from text
-                    rows = [line.split('|') for line in res_text.split('\n') if len(line) > 5]
-                    df = pd.DataFrame(rows)
+                    # AI ke response ko clean karke list mein badalna
+                    clean_data = res_text.replace("```json", "").replace("```", "").strip()
+                    data_list = json.loads(clean_data)
                     
+                    df = pd.DataFrame(data_list[1:], columns=data_list[0])
+                    
+                    st.success("Extraction Complete!")
+                    st.dataframe(df) # Screen par table dikhayega
+
+                    # --- EXCEL DOWNLOAD ---
                     output = BytesIO()
                     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-                        df.to_excel(writer, index=False, header=False, sheet_name='DataSnap_Export')
+                        df.to_excel(writer, index=False, sheet_name='DataSnap_Export')
                     
                     st.download_button(
                         label="📥 Download Excel File",
@@ -105,17 +109,19 @@ if menu == "🚀 AI Scanner":
                         file_name="DataSnap_Report.xlsx",
                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                     )
-                except:
-                    st.warning("Excel button build nahi ho paya, par data upar hai.")
 
-                # --- GOOGLE SHEET SYNC ---
-                sheet = init_sheets()
-                if sheet:
-                    sheet.append_row([res_text])
-                    st.toast("Synced to Cloud! ☁️")
-                    st.balloons()
+                    # --- GOOGLE SHEET SYNC ---
+                    sheet = init_sheets()
+                    if sheet:
+                        for row in data_list[1:]:
+                            sheet.append_row(row)
+                        st.toast("Synced to Cloud! ☁️")
+                        st.balloons()
 
-# --- 6. SUBSCRIPTIONS ---
+                except Exception as e:
+                    st.error("AI ne data table format mein nahi diya. Phir se try karein.")
+                    st.info(res_text)
+       # --- 6. SUBSCRIPTIONS ---
 elif menu == "💎 Subscriptions":
     st.markdown("<h1 class='header-text'>Pricing Plans</h1>", unsafe_allow_html=True)
     c1, c2, c3 = st.columns(3)
@@ -149,4 +155,3 @@ elif menu == "🔐 Admin Panel":
                 st.write("No records yet.")
     elif passw:
         st.error("Wrong Password!")
-
