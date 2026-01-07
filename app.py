@@ -5,34 +5,49 @@ from PIL import Image
 import gspread
 from google.oauth2.service_account import Credentials
 from io import BytesIO
-import re
+import json
 
-# --- 1. LUXURY DARK UI ---
-st.set_page_config(page_title="DataSnap AI", layout="wide")
+# --- 1. SET PAGE CONFIG ---
+st.set_page_config(page_title="DataSnap AI Premium", layout="wide")
 
+# --- 2. LUXURY DESIGN (CSS) ---
 st.markdown("""
     <style>
-    .stApp { background-color: #0e1117; }
-    h1, h2, h3 { color: #00ced1 !important; font-family: 'Trebuchet MS'; }
-    .stButton>button { 
-        background: linear-gradient(45deg, #6200ea, #03dac6); 
-        color: white; border-radius: 10px; border: none; font-weight: bold; height: 3em; width: 100%;
-    }
-    .status-box { padding: 20px; border-radius: 15px; background: #161b22; border: 1px solid #6200ea; }
+    .stApp { background: #0b0e14; color: white; }
+    .main-header { font-size: 50px; font-weight: bold; background: -webkit-linear-gradient(#00d2ff, #3a7bd5); -webkit-background-clip: text; -webkit-text-fill-color: transparent; text-align: center; }
+    .plan-card { background: rgba(255, 255, 255, 0.05); border: 1px solid #3a7bd5; padding: 20px; border-radius: 15px; text-align: center; height: 100%; }
+    .stButton>button { background: linear-gradient(45deg, #00d2ff, #3a7bd5); color: white; border-radius: 20px; border: none; width: 100%; height: 3em; font-weight: bold; }
     </style>
     """, unsafe_allow_html=True)
 
-# --- 2. AI SETUP ---
+# --- 3. PASSWORD PROTECTION (Lock Screen) ---
+if 'authenticated' not in st.session_state:
+    st.session_state['authenticated'] = False
+
+if not st.session_state['authenticated']:
+    st.markdown("<h1 class='main-header'>🔐 DataSnap AI Lock</h1>", unsafe_allow_html=True)
+    col1, col2, col3 = st.columns([1,2,1])
+    with col2:
+        pwd = st.text_input("Enter Access Password", type="password")
+        if st.button("Unlock Website"):
+            if pwd == st.secrets["ADMIN_PASSWORD"]:
+                st.session_state['authenticated'] = True
+                st.rerun()
+            else:
+                st.error("Wrong Password! Contact Hussain Bhai.")
+    st.stop() # Yahin rok dega jab tak password sahi na ho
+
+# --- 4. AUTO-MODEL SELECTION LOGIC ---
 genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
 try:
     all_m = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
     sel_m = 'models/gemini-1.5-flash' if 'models/gemini-1.5-flash' in all_m else all_m[0]
     model = genai.GenerativeModel(sel_m)
-except:
-    st.error("AI Model connect nahi ho raha. Key check karein.")
+except Exception as e:
+    st.error(f"AI Connection Error: {e}")
 
-# --- 3. GOOGLE SHEETS ---
-def save_to_sheet(data_row):
+# --- 5. GOOGLE SHEET SYNC ---
+def sync_data(data_row):
     try:
         scope = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
         creds = Credentials.from_service_account_info(st.secrets["gcp_service_account"], scopes=scope)
@@ -42,59 +57,44 @@ def save_to_sheet(data_row):
         return True
     except: return False
 
-# --- 4. MAIN APP ---
-st.title("📸 DataSnap AI Professional")
+# --- 6. MAIN CONTENT (After Login) ---
+st.markdown("<h1 class='main-header'>📸 DataSnap AI PRO</h1>", unsafe_allow_html=True)
 
-tab1, tab2, tab3 = st.tabs(["🚀 Scanner", "💎 Subscriptions", "🔐 Admin"])
+tab1, tab2, tab3 = st.tabs(["🚀 Scanner", "💎 Subscriptions", "📊 Admin Panel"])
 
 with tab1:
-    uploaded_file = st.file_uploader("Upload Bill/Data Image", type=["jpg", "png", "jpeg"])
-    
-    if uploaded_file:
-        img = Image.open(uploaded_file)
+    up_file = st.file_uploader("Upload Image", type=["jpg", "png", "jpeg"])
+    if up_file:
+        img = Image.open(up_file)
         st.image(img, width=400)
-        
-        if st.button("Extract & Process Data"):
-            with st.spinner("AI Calculating & Formatting..."):
-                prompt = """Extract data from this image. 
-                If it's an invoice, find: Date, Vendor, GST_No, Total_Amount.
-                If it's a table, extract all rows.
-                Format the output as a clean table with | separator. 
-                Example: Date | Vendor | GST | Total"""
-                
+        if st.button("Start Analysis"):
+            with st.spinner("AI processing..."):
+                prompt = """Extract invoice details. Output as JSON list of lists only. 
+                Include: Date, Vendor, GSTIN, Taxable_Amt, GST_Amt, Total.
+                Example: [['Date', 'Vendor', 'GSTIN', 'Taxable', 'GST', 'Total'], ['01-01-26', 'XYZ', '123', '100', '18', '118']]"""
                 response = model.generate_content([prompt, img])
-                res = response.text
-                st.markdown("### 📋 Extracted Results")
-                st.code(res)
-
-                # --- EXCEL LOGIC ---
-                # Text ko rows mein todna
-                lines = [l.split('|') for l in res.split('\n') if '|' in l]
-                if lines:
-                    df = pd.DataFrame(lines)
+                try:
+                    res_json = json.loads(response.text.replace("```json", "").replace("```", ""))
+                    df = pd.DataFrame(res_json[1:], columns=res_json[0])
+                    st.dataframe(df, use_container_width=True)
                     
                     # Excel Download
                     output = BytesIO()
                     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-                        df.to_excel(writer, index=False, header=False)
+                        df.to_excel(writer, index=False)
+                    st.download_button("📥 Download Excel", output.getvalue(), "Report.xlsx")
                     
-                    st.download_button("📥 Download Excel Report", output.getvalue(), "DataSnap_Report.xlsx")
-                    
-                    # Sync to Google Sheet
-                    if save_to_sheet(lines[0]):
-                        st.success("Data Saved to Cloud Sheet! ✅")
-                    else:
-                        st.warning("Google Sheet sync failed. Share settings check karein.")
+                    if sync_data(res_json[1]): st.success("Synced to Cloud!")
+                except: st.code(response.text)
 
 with tab2:
-    st.header("Subscription Plans")
     col1, col2, col3 = st.columns(3)
-    col1.metric("Starter", "₹200", "20 Scans")
-    col2.metric("Pro", "₹1200", "Unlimited")
-    col3.metric("Enterprise", "₹5000", "Multi-user")
-    st.image(f"https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=upi://pay?pa=YOUR_UPI@okaxis")
+    with col1: st.markdown("<div class='plan-card'><h3>Starter</h3><h2>₹200</h2><p>20 Scans</p></div>", unsafe_allow_html=True)
+    with col2: st.markdown("<div class='plan-card' style='border-color:#00d2ff'><h3>Business</h3><h2>₹1200</h2><p>Unlimited Scans</p></div>", unsafe_allow_html=True)
+    with col3: st.markdown("<div class='plan-card'><h3>Enterprise</h3><h2>₹5000</h2><p>Multi-user</p></div>", unsafe_allow_html=True)
+    st.markdown("<br><h4 style='text-align:center;'>Scan QR to Pay & WhatsApp Screenshot</h4>", unsafe_allow_html=True)
+    st.image("https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=upi://pay?pa=YOUR_UPI@okaxis")
 
 with tab3:
-    passw = st.text_input("Admin Password", type="password")
-    if passw == st.secrets["ADMIN_PASSWORD"]:
-        st.write("Welcome Hussain Bhai! Aapka database ready hai.")
+    st.subheader("Database History")
+    # Yahan aayan Bhai apna data dekh sakte hain
