@@ -1,126 +1,152 @@
 import streamlit as st
 import google.generativeai as genai
-from PIL import Image
 import pandas as pd
-from datetime import datetime
-import io
-import re
+from PIL import Image
+import gspread
+from google.oauth2.service_account import Credentials
+from io import BytesIO
+import json
 
-# --- 1. CONFIGURATION & API ---
-MY_API_KEY = MY_API_KEY = st.secrets["GEMINI_API_KEY"]
-genai.configure(api_key=MY_API_KEY)
+# --- 1. UI CONFIG & STYLING ---
+st.set_page_config(page_title="DataSnap AI | Smart Data Entry", layout="wide", page_icon="📸")
 
-# --- 2. LOGIN SYSTEM (Simple & Effective) ---
-def login():
-    st.sidebar.title("🔐 User Access")
-    if 'logged_in' not in st.session_state:
-        st.session_state.logged_in = False
+# Luxury Neon Dark Theme
+st.markdown("""
+    <style>
+    .main { background-color: #0b0e14; color: #e0e0e0; }
+    .stButton>button { 
+        background: linear-gradient(90deg, #8a2be2, #00ced1); 
+        color: white; border-radius: 25px; border: none; padding: 12px 30px; 
+        font-size: 18px; font-weight: bold; transition: 0.3s; width: 100%;
+    }
+    .stButton>button:hover { transform: scale(1.02); box-shadow: 0 0 20px rgba(138, 43, 226, 0.6); }
+    .plan-card { 
+        border: 1px solid #2e3440; padding: 25px; border-radius: 20px; 
+        text-align: center; background: #161b22; box-shadow: 5px 5px 15px rgba(0,0,0,0.4);
+    }
+    .header-text { 
+        background: -webkit-linear-gradient(#8a2be2, #00ced1); 
+        -webkit-background-clip: text; -webkit-text-fill-color: transparent; 
+        font-size: 45px; font-weight: bold; text-align: center;
+    }
+    </style>
+    """, unsafe_allow_html=True)
 
-    if not st.session_state.logged_in:
-        user = st.sidebar.text_input("Username")
-        pw = st.sidebar.text_input("Password", type="password")
-        if st.sidebar.button("Login"):
-            if user == "admin" and pw == "1234": # Startup ke liye yahan username/pw set karein
-                st.session_state.logged_in = True
-                st.rerun()
-            else:
-                st.sidebar.error("Galat details bhai!")
-        return False
-    else:
-        if st.sidebar.button("Logout"):
-            st.session_state.logged_in = False
-            st.rerun()
-        return True
+# --- 2. GOOGLE SERVICES SETUP ---
+def init_sheets():
+    try:
+        scope = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
+        creds_info = st.secrets["gcp_service_account"]
+        creds = Credentials.from_service_account_info(creds_info, scopes=scope)
+        client = gspread.authorize(creds)
+        return client.open_by_key(st.secrets["GOOGLE_SHEET_ID"]).sheet1
+    except Exception as e:
+        return None
 
-# --- 3. MAIN APP ---
-if login():
-    st.title("🚀 AI Digital Accountant Pro")
-    st.info("Status: Startup Mode Active | User: Admin")
+# --- 3. AI MODEL INITIALIZATION (Automatic Selection) ---
+genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
 
-    uploaded_file = st.file_uploader("Bill ki photo upload karein...", type=["jpg", "jpeg", "png"])
+try:
+    # Tera favorite automatic model selection logic
+    all_m = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
+    sel_m = 'models/gemini-1.5-flash' if 'models/gemini-1.5-flash' in all_m else all_m[0]
+    model = genai.GenerativeModel(sel_m)
+except Exception as e:
+    st.error(f"AI Initialization Error: {e}")
 
+# --- 4. NAVIGATION ---
+with st.sidebar:
+    st.markdown("<h2 style='color:#00ced1;'>📸 DataSnap AI</h2>", unsafe_allow_html=True)
+    st.markdown("---")
+    menu = st.radio("Navigation", ["🚀 AI Scanner", "💎 Subscriptions", "🔐 Admin Panel"])
+    st.markdown("---")
+    st.write("Owner: Hussain Bhai")
+    st.write("System: **Active** 🟢")
+
+# --- 5. AI SCANNER MODE ---
+if menu == "🚀 AI Scanner":
+    st.markdown("<h1 class='header-text'>DataSnap AI</h1>", unsafe_allow_html=True)
+    st.write("<p style='text-align: center;'>Invoice ho ya Data List—AI sab pehchan lega!</p>", unsafe_allow_html=True)
+
+    uploaded_file = st.file_uploader("Upload Image (JPG, PNG)", type=["jpg", "png", "jpeg"])
+    
     if uploaded_file:
-        col1, col2 = st.columns(2)
         img = Image.open(uploaded_file)
-        with col1:
-            st.image(img, caption="Original Bill", use_container_width=True)
+        st.image(img, caption="Document Preview", width=500)
+        
+        if st.button("Magic Scan & Save"):
+            with st.spinner("AI analyzing your document..."):
+                # Intelligent Prompt
+                prompt = """Identify the content. 
+                - If it's an INVOICE: extract Date, Vendor, GST Number, Total.
+                - If it's a DATA LIST/TABLE: extract all items into a clear table.
+                Format: Return a clean list with headers."""
+                
+                response = model.generate_content([prompt, img])
+                res_text = response.text
+                
+                st.success("Extraction Complete!")
+                st.markdown("### 📋 Extracted Data")
+                st.info(res_text)
 
-        if st.button("Analyze & Create Professional Excel ✨"):
-            with st.spinner("AI Analysis kar raha hai..."):
+                # --- EXCEL DOWNLOAD LOGIC ---
                 try:
-                    model = genai.GenerativeModel('gemini-2.5-flash')
+                    # Creating a simple DataFrame from text
+                    rows = [line.split('|') for line in res_text.split('\n') if len(line) > 5]
+                    df = pd.DataFrame(rows)
                     
-                    # SAKHT PROMPT: Isse Excel perfect aayegi
-                    prompt = """Analyze this invoice image very carefully:
-                    1. Extract Shop Name.
-                    2. Create a Markdown Table with columns: S.No | Description | HSN | Qty | Rate | GST % | Amount
-                    3. After items, MUST add rows for: Subtotal, CGST, SGST, Round Off, and GRAND TOTAL.
-                    Final Line must be: DATA: [Shop Name] | [Total Amount]"""
-
-                    response = model.generate_content([prompt, img])
-                    res_text = response.text
-                    
-                    # Store in Session
-                    st.session_state.analysis_result = res_text
-                    
-                    # Extract Summary Data
-                    if "DATA:" in res_text:
-                        raw = res_text.split("DATA:")[1].strip()
-                        st.session_state.shop_name = raw.split("|")[0].strip()
-                        st.session_state.grand_total = raw.split("|")[1].strip()
-                    
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"AI Error: {e}")
-
-    # --- 4. EXCEL GENERATION AREA ---
-    if 'analysis_result' in st.session_state:
-        with col2:
-            st.success("Analysis Done!")
-            st.markdown(st.session_state.analysis_result)
-            
-            try:
-                # Table nikalna
-                table_rows = re.findall(r'\|(.+)\|', st.session_state.analysis_result)
-                if len(table_rows) > 1:
-                    data = []
-                    for r in table_rows:
-                        if "---" not in r:
-                            cols = [c.strip().replace('**', '').replace('"', '') for c in r.split('|')]
-                            cols = [c for c in cols if c != ""]
-                            if cols: data.append(cols)
-                    
-                    df = pd.DataFrame(data[1:], columns=data[0])
-
-                    # Excel taiyar karna
-                    output = io.BytesIO()
+                    output = BytesIO()
                     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-                        df.to_excel(writer, index=False, sheet_name='GST_Report', startrow=4)
-                        
-                        workbook  = writer.book
-                        worksheet = writer.sheets['GST_Report']
-                        
-                        # Style: Blue Header
-                        header_fmt = workbook.add_format({'bold': True, 'bg_color': '#1F4E78', 'font_color': 'white', 'border': 1})
-                        # Style: Title
-                        title_fmt = workbook.add_format({'bold': True, 'font_size': 16, 'font_color': '#1F4E78'})
-
-                        # Header likhna
-                        worksheet.write('A1', f"BUSINESS REPORT: {st.session_state.get('shop_name', 'N/A')}", title_fmt)
-                        worksheet.write('A2', f"DATE: {datetime.now().strftime('%d-%m-%Y')}")
-                        worksheet.write('A3', f"GENERATED BY: AI DIGITAL ACCOUNTANT")
-
-                        # Table formatting
-                        for col_num, value in enumerate(df.columns.values):
-                            worksheet.write(4, col_num, value, header_fmt)
-                            worksheet.set_column(col_num, col_num, 20)
-
+                        df.to_excel(writer, index=False, header=False, sheet_name='DataSnap_Export')
+                    
                     st.download_button(
-                        label="📥 Download Full GST Excel Report",
+                        label="📥 Download Excel File",
                         data=output.getvalue(),
-                        file_name=f"Report_{datetime.now().strftime('%H%M%S')}.xlsx",
+                        file_name="DataSnap_Report.xlsx",
                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                     )
-            except Exception as e:
+                except:
+                    st.warning("Excel button build nahi ho paya, par data upar hai.")
 
-                st.error(f"Excel Formatting Error: {e}")
+                # --- GOOGLE SHEET SYNC ---
+                sheet = init_sheets()
+                if sheet:
+                    sheet.append_row([res_text])
+                    st.toast("Synced to Cloud! ☁️")
+                    st.balloons()
+
+# --- 6. SUBSCRIPTIONS ---
+elif menu == "💎 Subscriptions":
+    st.markdown("<h1 class='header-text'>Pricing Plans</h1>", unsafe_allow_html=True)
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        st.markdown('<div class="plan-card"><h3>Starter</h3><h2>₹200</h2><p>20 Scans<br>Basic Support</p></div>', unsafe_allow_html=True)
+    with c2:
+        st.markdown('<div class="plan-card" style="border: 2px solid #00ced1;"><h3>Pro</h3><h2>₹1200</h2><p><b>Unlimited Scans</b><br>Priority AI Mode</p></div>', unsafe_allow_html=True)
+    with c3:
+        st.markdown('<div class="plan-card"><h3>Enterprise</h3><h2>₹5000</h2><p>Multi-User Access<br>Custom Export</p></div>', unsafe_allow_html=True)
+
+    st.markdown("---")
+    st.subheader("Payment QR Code")
+    # Replace with your actual UPI details
+    qr_url = "https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=upi://pay?pa=YOUR_UPI@okaxis&pn=DataSnap"
+    st.image(qr_url, caption="Scan to Pay")
+    st.info("Setup Fee: ₹1500 | Discount Price: ₹1200")
+
+# --- 7. ADMIN PANEL ---
+elif menu == "🔐 Admin Panel":
+    st.markdown("<h1 class='header-text'>Owner Access</h1>", unsafe_allow_html=True)
+    passw = st.text_input("Enter Password", type="password")
+    
+    if passw == st.secrets["ADMIN_PASSWORD"]:
+        st.success("Welcome Hussain Bhai!")
+        sheet = init_sheets()
+        if sheet:
+            recs = sheet.get_all_records()
+            if recs:
+                st.dataframe(pd.DataFrame(recs))
+            else:
+                st.write("No records yet.")
+    elif passw:
+        st.error("Wrong Password!")
+
