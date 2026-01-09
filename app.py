@@ -8,105 +8,99 @@ from io import BytesIO
 import json
 from datetime import datetime
 
-# --- CONFIG & UI ---
-st.set_page_config(page_title="DataSnap AI Agent PRO", layout="wide")
+# --- 1. CONFIG & UI ---
+st.set_page_config(page_title="DataSnap AI GST Engine", layout="wide")
 st.markdown("<style>.stApp{background:#0b0e14;color:white;}</style>", unsafe_allow_html=True)
 
-# --- LOGIN ---
+# --- 2. LOGIN (Tera Screen Lock) ---
 if 'login' not in st.session_state: st.session_state['login'] = False
 if not st.session_state['login']:
-    st.title("🔐 AI Agent Portal")
-    p = st.text_input("Access Key", type="password")
+    st.title("🔐 DataSnap AI Lock")
+    p = st.text_input("Enter Access Password", type="password")
     if st.button("Unlock"):
         if p == st.secrets["ADMIN_PASSWORD"]: 
             st.session_state['login'] = True
             st.rerun()
     st.stop()
 
-# --- AGENT SETUP ---
+# --- 3. AUTOMATIC MODEL FINDER (Jo Tune Manga) ---
 genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
 try:
     all_m = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
-    model = genai.GenerativeModel('models/gemini-1.5-flash' if 'models/gemini-1.5-flash' in all_m else all_m[0])
-except: st.error("AI Error")
+    sel_m = 'models/gemini-1.5-flash' if 'models/gemini-1.5-flash' in all_m else all_m[0]
+    model = genai.GenerativeModel(sel_m)
+except Exception as e:
+    st.error(f"AI Connection Error: {e}")
 
-# --- GOOGLE SHEET SYNC FUNCTION ---
-def sync_to_google(data_list):
+# --- 4. GOOGLE SHEET CONNECT ---
+def get_sheet():
     try:
         scope = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
         creds = Credentials.from_service_account_info(st.secrets["gcp_service_account"], scopes=scope)
-        client = gspread.authorize(creds)
-        # Apni Sheet ID check kar lena secrets mein sahi hai na
-        sheet = client.open_by_key(st.secrets["GOOGLE_SHEET_ID"]).sheet1
-        sheet.append_rows(data_list)
-        return True
-    except Exception as e:
-        st.error(f"Sync Error: {e}")
-        return False
+        return gspread.authorize(creds).open_by_key(st.secrets["GOOGLE_SHEET_ID"]).sheet1
+    except: return None
 
-# --- AGENT BRAIN ---
-def process_with_ai_agent(image):
-    today = datetime.now().strftime("%d-%m-%Y")
-    # Description fix karne ke liye instruction:
-    agent_instruction = f"""
-    You are an AI Digital Accountant. Analyze this invoice image.
-    1. EXTRACT FULL DESCRIPTION: Do not shorten or truncate product names. Extract the COMPLETE text for each item.
-    2. Extract: S.No, HSN, Qty, Rate, GST %, Amount.
-    3. Mathematical Check: Subtotal, CGST (9%), SGST (9%), Grand Total.
-    
-    OUTPUT FORMAT: Return ONLY a JSON list of lists.
-    Format example:
-    [
-        ["BUSINESS REPORT", "VENDOR NAME", "", "", "", "", ""],
-        ["DATE: {today}", "", "", "", "", "", ""],
-        ["", "", "", "", "", "", ""],
-        ["S.No", "Description", "HSN", "Qty", "Rate", "GST %", "Amount"],
-        ["1", "FULL PRODUCT NAME HERE WITHOUT CUTTING", "HSNCODE", "1", "100", "18%", "118"],
-        ["Subtotal", "", "", "", "", "", "TotalValue"],
-        ["CGST", "9%", "", "", "", "", "TaxValue"],
-        ["SGST", "9%", "", "", "", "", "TaxValue"],
-        ["GRAND TOTAL", "", "", "", "", "", "FinalValue"]
-    ]
-    """
-    response = model.generate_content([agent_instruction, image])
-    return response.text
+# --- 5. MAIN APP ---
+st.title("🤖 DataSnap AI Agent + GST Engine")
 
-# --- APP MAIN ---
-st.title("🤖 DataSnap AI Agent V9")
-up = st.file_uploader("Upload Invoice", type=['jpg','png','jpeg'])
+tab1, tab2 = st.tabs(["🚀 Smart Scan", "📜 Billing History"])
 
-if up:
-    img = Image.open(up)
-    st.image(img, width=400)
-    if st.button("🚀 Full Analysis Start"):
-        with st.spinner("AI Agent is reading full descriptions..."):
-            raw_res = process_with_ai_agent(img)
-            try:
-                clean_json = raw_res.replace("```json","").replace("```","").strip()
-                data = json.loads(clean_json)
-                df = pd.DataFrame(data)
+with tab1:
+    up = st.file_uploader("Upload Bill/Invoice", type=['jpg','png','jpeg'])
+    if up:
+        img = Image.open(up)
+        st.image(img, width=400)
+        
+        if st.button("🚀 Run GST Engine Analysis"):
+            with st.spinner("AI Agent calculating taxes..."):
+                # Ye hai hamara Powerful Prompt (GST Engine)
+                prompt = """You are a GST Engine Expert. Analyze this invoice image.
+                1. EXTRACT FULL DESCRIPTION: Do not cut any words.
+                2. IDENTIFY GST SLAB: Identify if item is 5%, 12%, 18%, or 28% GST.
+                3. CALCULATE TAX: Split GST into CGST (Half) and SGST (Half).
+                4. FORMAT: Return ONLY as a JSON list of lists.
                 
-                st.subheader("📋 Professional Report Preview")
-                st.dataframe(df, use_container_width=True)
+                Columns needed: [S.No, Description, HSN, Qty, Rate, Taxable_Amt, GST_%, CGST_Amt, SGST_Amt, Total]
+                Include 'Subtotal', 'Total Tax', and 'Grand Total' as final rows.
+                """
                 
-                # Excel Build
-                out = BytesIO()
-                with pd.ExcelWriter(out, engine='xlsxwriter') as wr:
-                    df.to_excel(wr, index=False, header=False, sheet_name='GST_Report')
-                
-                st.download_button("📥 Download Full GST Excel", out.getvalue(), "AI_GST_Report_Full.xlsx")
-                
-                # Google Sheet Sync
-                if sync_to_google(data):
-                    st.success("✅ Full Data Synced to Google Sheets!")
-                    st.balloons()
-                else:
-                    st.warning("⚠️ Excel ready, but Google Sheet sync failed.")
+                resp = model.generate_content([prompt, img])
+                try:
+                    raw_data = resp.text.replace("```json","").replace("```","").strip()
+                    data_list = json.loads(raw_data)
+                    df = pd.DataFrame(data_list)
                     
-            except Exception as e:
-                st.error("Format Error. Please try a clearer photo.")
-                st.write(raw_res)
+                    st.success("✅ Analysis Complete with GST Engine")
+                    st.dataframe(df, use_container_width=True)
+                    
+                    # Professional Excel Download
+                    out = BytesIO()
+                    with pd.ExcelWriter(out, engine='xlsxwriter') as wr:
+                        df.to_excel(wr, index=False, header=False, sheet_name='GST_Report')
+                    st.download_button("📥 Download GST Excel Report", out.getvalue(), "GST_Report_Pro.xlsx")
+                    
+                    # Sync to Sheet
+                    gs = get_sheet()
+                    if gs:
+                        gs.append_rows(data_list)
+                        st.toast("Data Synced! ☁️")
+                        st.balloons()
+                except:
+                    st.warning("AI Formatting Error. Direct Data:")
+                    st.code(resp.text)
 
-# --- PLANS ---
-st.sidebar.title("💎 Business Plans")
-st.sidebar.info("₹200 - 20 Scans\n₹1200 - Unlimited\n₹5000 - Enterprise")
+with tab2:
+    st.header("🔍 Monthly/Daily History")
+    search_q = st.text_input("Enter Date or Vendor Name")
+    if st.button("Find History"):
+        gs = get_sheet()
+        if gs:
+            data = pd.DataFrame(gs.get_all_records())
+            if not data.empty:
+                res = data[data.astype(str).apply(lambda x: search_q.lower() in x.str.lower().values, axis=1)]
+                st.dataframe(res)
+            else: st.info("No data found.")
+
+# --- SIDEBAR PLANS ---
+st.sidebar.markdown("### 💎 DataSnap Plans")
+st.sidebar.info("₹200 - 20 Scans\n₹1200 - Unlimited (Pro)\n₹5000 - Enterprise")
