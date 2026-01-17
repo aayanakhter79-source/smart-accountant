@@ -98,10 +98,13 @@ with t2:
     st.subheader("Last 10 Entries")
     sheet = get_gsheet()
     if sheet:
-        history = sheet.get_all_records()
-        if history:
-            st.table(pd.DataFrame(history).tail(10))
-        else:
-            st.write("No history found.")
+        try:
+            history_data = sheet.get_all_records()
+            if history_data:
+                st.table(pd.DataFrame(history_data).tail(10))
+            else:
+                st.info("Sheet is empty. Start scanning to see history!")
+        except Exception as e:
+            st.warning("Please add headers (S.No, Description, etc.) to your Google Sheet.")
     else:
-        st.error("Google Sheet not connected. Check your Secrets.")
+        st.error("Google Sheet not connected.")
