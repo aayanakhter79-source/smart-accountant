@@ -98,14 +98,16 @@ with t1:
                     st.error("AI could not format data. Please try again with a clearer photo.")
 
 with t2:
-    st.subheader("Last 10 Entries (Sheet1)")
+    st.subheader("📜 Last 10 Entries (Sheet1)")
     sheet = get_gsheet()
     if sheet:
         try:
-            history_data = sheet.get_all_records()
-            if history_data:
-                st.table(pd.DataFrame(history_data).tail(10))
+            # Isse headers ki tension khatam ho jayegi
+            data = sheet.get_all_values()
+            if len(data) > 1:
+                df_history = pd.DataFrame(data[1:], columns=data[0])
+                st.table(df_history.tail(10))
             else:
-                st.info("No data found in Sheet1. Please add headers to Row 1.")
-        except:
-            st.warning("Please copy headers to Sheet1 Row 1.")
+                st.info("Sheet is empty! Row 1 mein headers dalo: S.No, Description, HSN, Qty, Rate, GST %, Amount")
+        except Exception as e:
+            st.error(f"Data read nahi ho raha: {e}")
