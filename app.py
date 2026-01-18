@@ -98,16 +98,24 @@ with t1:
                     st.error("AI could not format data. Please try again with a clearer photo.")
 
 with t2:
-    st.subheader("📜 Last 10 Entries (Sheet1)")
+    st.subheader("📜 Full History (Latest on Top)")
     sheet = get_gsheet()
     if sheet:
         try:
-            # Isse headers ki tension khatam ho jayegi
+            # Pura data uthao
             data = sheet.get_all_values()
             if len(data) > 1:
+                # DataFrame banao (Row 1 ko header maankar)
                 df_history = pd.DataFrame(data[1:], columns=data[0])
-                st.table(df_history.tail(10))
+                
+                # 🔄 REVERSE LOGIC: Nayi entries upar lane ke liye
+                df_history = df_history.iloc[::-1]
+
+                # 🖱️ SCROLL FEATURE: Height 500px set kardi taaki scroll ho sake
+                st.dataframe(df_history, height=500, use_container_width=True)
+                
+                st.caption("Tip: Aap upar wale table mein scroll karke purani saari entries dekh sakte hain.")
             else:
-                st.info("Sheet is empty! Row 1 mein headers dalo: S.No, Description, HSN, Qty, Rate, GST %, Amount")
+                st.info("Sheet khali hai! Pehla scan karein.")
         except Exception as e:
-            st.error(f"Data read nahi ho raha: {e}")
+            st.error(f"Data dikhane mein problem: {e}")
