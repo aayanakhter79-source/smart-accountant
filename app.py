@@ -7,10 +7,10 @@ import gspread
 from google.oauth2.service_account import Credentials
 from io import BytesIO
 
-# --- CONFIG ---
-st.set_page_config(page_title="DataSnap AI - Zenith", layout="wide")
+# --- CONFIG & API SETUP ---
+st.set_page_config(page_title="DataSnap AI - Zenith Pro", layout="wide")
 
-# API Keys
+# API Keys from Secrets
 genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
 try:
 
@@ -19,6 +19,7 @@ try:
     model = genai.GenerativeModel('models/gemini-1.5-flash' if 'models/gemini-1.5-flash' in all_m else all_m[0])
 
 except: st.error("AI Error")
+
 
 
 # --- GOOGLE SHEET CONNECT ---
@@ -30,67 +31,96 @@ def get_gsheet():
         return client.open_by_key(st.secrets["GOOGLE_SHEET_ID"]).sheet1
     except: return None
 
+# --- GPT UPGRADE: SAFE JSON LOAD ---
+def safe_json_load(text):
+    text = text.replace("```json","").replace("```","").strip()
+    for _ in range(2):
+        try:
+            return json.loads(text)
+        except:
+            # Safai: Newlines hatana aur extra commas theek karna
+            text = text.replace("\n", " ").replace(",]", "]").replace(",}", "}")
+    return None
+
 # --- MAIN UI ---
-st.markdown("<h1 style='text-align: center; color: #00ced1;'>📸 DataSnap AI by ZENITH</h1>", unsafe_allow_html=True)
-t1, t2 = st.tabs(["🚀 Smart Scanner", "📜 Data History"])
+st.markdown("<h1 style='text-align: center; color: #00ced1;'>🚀 DataSnap AI Pro by ZENITH</h1>", unsafe_allow_html=True)
+t1, t2 = st.tabs(["🚀 AI Smart Scanner", "📜 History & Logs"])
 
 with t1:
-    # Scan Counter Metric
+    # Scan Counter Logic
     sheet = get_gsheet()
+    total_scans = 0
     if sheet:
-        all_vals = sheet.get_all_values()
-        # Sirf "SHOP NAME" wali rows count karke real scans nikalte hain
-        scan_count = sum(1 for row in all_vals if "SHOP NAME" in row)
-        st.metric("Total Successful Scans", f"{scan_count}")
+        all_data = sheet.get_all_values()
+        total_scans = sum(1 for row in all_data if "SHOP NAME" in row)
 
-    up = st.file_uploader("Upload Image", type=['jpg','png','jpeg'])
-    if up:
-        img = Image.open(up)
-        st.image(img, width=400)
-        
-        if st.button("🚀 Process & Save"):
-            with st.spinner("Processing in your favourite format..."):
-                # WAPAS PURANA POWERFUL PROMPT (Jisme description achi aati thi)
-                prompt = """Analyze this image and return a JSON list of lists.
-                Structure:
-                Row 1: ["SHOP NAME", "Name", "DATE", "Date", "", "", ""]
-                Row 2: ["S.No", "Description", "HSN", "Qty", "Rate", "GST %", "Amount"]
-                Following Rows: Extract items. S.No must start from 1 for this image.
-                Keep Descriptions VERY DETAILED.
-                Final Rows: Add CGST, SGST, and Grand Total rows.
-                Return ONLY the JSON list of lists."""
-
-                response = model.generate_content([prompt, img])
-                try:
-                    raw_data = response.text.replace("```json","").replace("```","").strip()
-                    data_list = json.loads(raw_data)
-                    df = pd.DataFrame(data_list)
+    c1, c2 = st.columns([3, 1])
+    with c2:
+        st.metric("Total Scans", total_scans)
+        mode = st.radio("🧠 Mode", ["🤖 Auto Detect", "📊 Data Entry", "🧾 GST Mode"])
+    
+    with c1:
+        up = st.file_uploader("Upload Image", type=['jpg','png','jpeg'])
+        if up:
+            img = Image.open(up)
+            st.image(img, width=450)
+            
+            if st.button("🚀 Start Deep Extraction"):
+                with st.spinner("AI is thinking & repairing OCR mistakes..."):
                     
-                    st.success("✅ Excel Ready in Purana Style!")
-                    st.dataframe(df)
+                    # AI Prompt with Confidence Score & Detailed Logic
+                    prompt = """Analyze this image. 
+                    1. Identify if it's a GST Invoice or Normal Table.
+                    2. Extract data in this EXACT JSON format:
+                       {
+                         "confidence": 95,
+                         "data": [
+                           ["SHOP NAME", "Name", "DATE", "Date", "", "", ""],
+                           ["S.No", "Description", "HSN", "Qty", "Rate", "GST %", "Amount"],
+                           ["1", "Detailed Description", "HSN", "Qty", "Rate", "GST", "Total"]
+                         ]
+                       }
+                    Rules: 
+                    - S.No starts from 1 for this image. 
+                    - Keep descriptions VERY LONG and DETAILED.
+                    - Add CGST, SGST, Grand Total rows at the end.
+                    Return ONLY JSON."""
 
-                    if sheet:
-                        sheet.append_rows(data_list)
-                    
-                    # --- PURANA EXCEL FORMATTING ---
-                    out = BytesIO()
-                    with pd.ExcelWriter(out, engine='xlsxwriter') as writer:
-                        df.to_excel(writer, index=False, header=False, sheet_name='DataSnap_Export')
-                        worksheet = writer.sheets['DataSnap_Export']
-                        # Column B (Description) ko extra wide karna
-                        worksheet.set_column('B:B', 65)
-                    st.download_button("📥 Download Excel (Purana Format)", out.getvalue(), "DataSnap_Report.xlsx")
-                except:
-                    st.error("AI breakdown. Please try again.")
+                    response = model.generate_content([prompt, img])
+                    full_res = safe_json_load(response.text)
+
+                    if full_res and "data" in full_res:
+                        data_list = full_res["data"]
+                        conf = full_res.get("confidence", 85)
+                        
+                        st.metric("AI Confidence", f"{conf}%")
+                        df = pd.DataFrame(data_list)
+                        st.dataframe(df, use_container_width=True)
+
+                        # Save to Sheet
+                        if sheet:
+                            sheet.append_rows(data_list)
+                            st.toast("Data Saved to Cloud!")
+
+                        # Excel Export with Width Fix (Purana Best Format)
+                        out = BytesIO()
+                        with pd.ExcelWriter(out, engine='xlsxwriter') as writer:
+                            df.to_excel(writer, index=False, header=False, sheet_name='DataSnap_Export')
+                            worksheet = writer.sheets['DataSnap_Export']
+                            worksheet.set_column('B:B', 65) # Pro width for description
+                        st.download_button("📥 Download Pro Excel", out.getvalue(), "DataSnap_Zenith_Pro.xlsx")
+                    else:
+                        st.error("AI output unstable. Try a clearer image.")
 
 with t2:
-    st.subheader("📜 Recent History (Latest Scans First)")
+    st.subheader("📜 Recent History (Latest on Top)")
     if sheet:
-        data = sheet.get_all_values()
-        if len(data) > 0:
-            # Pura data dikhayenge bina header chhede, lekin reverse karke
-            df_history = pd.DataFrame(data)
-            # Latest entry upar dikhane ke liye reverse logic
-            st.dataframe(df_history.iloc[::-1], height=600, use_container_width=True)
-        else:
-            st.info("No history yet.")
+        try:
+            raw_history = sheet.get_all_values()
+            if len(raw_history) > 0:
+                # Latest entries upar dikhane ke liye reverse
+                df_history = pd.DataFrame(raw_history)
+                st.dataframe(df_history.iloc[::-1], height=600, use_container_width=True)
+            else:
+                st.info("No scans yet.")
+        except: st.warning("Syncing history...")
