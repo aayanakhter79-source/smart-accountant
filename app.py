@@ -11,7 +11,13 @@ from io import BytesIO
 st.set_page_config(page_title="DataSnap AI Pro - Zenith", layout="wide")
 
 genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
-model = genai.GenerativeModel('gemini-1.5-flash')
+try:
+
+    all_m = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
+
+    model = genai.GenerativeModel('models/gemini-1.5-flash' if 'models/gemini-1.5-flash' in all_m else all_m[0])
+
+except: st.error("AI Error")
 
 def get_gsheet():
     try:
