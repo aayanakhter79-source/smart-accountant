@@ -103,24 +103,36 @@ with t1:
                             st.toast("Data Saved to Cloud!")
 
                         # Excel Export with Width Fix (Purana Best Format)
-                        out = BytesIO()
-                        with pd.ExcelWriter(out, engine='xlsxwriter') as writer:
-                            df.to_excel(writer, index=False, header=False, sheet_name='DataSnap_Export')
-                            worksheet = writer.sheets['DataSnap_Export']
-                            worksheet.set_column('B:B', 65) # Pro width for description
-                        st.download_button("📥 Download Pro Excel", out.getvalue(), "DataSnap_Zenith_Pro.xlsx")
-                    else:
+                       # --- Excel Export Fix (Text Wrap & Formatting) ---
+out = BytesIO()
+with pd.ExcelWriter(out, engine='xlsxwriter') as writer:
+    df.to_excel(writer, index=False, header=False, sheet_name='DataSnap_Export')
+    workbook = writer.book
+    worksheet = writer.sheets['DataSnap_Export']
+    
+    # Text Wrap format banana
+    wrap_format = workbook.add_format({'text_wrap': True, 'valign': 'top'})
+    
+    # Column B (Description) ki width 40 karke wrap on karna
+    worksheet.set_column('B:B', 40, wrap_format)
+    # Baaki columns ko normal rakhna
+    worksheet.set_column('A:A', 8)
+    worksheet.set_column('C:G', 12)
+
+st.download_button("📥 Download Pro Excel", out.getvalue(), "DataSnap_Zenith_Pro.xlsx")                    else:
                         st.error("AI output unstable. Try a clearer image.")
 
 with t2:
-    st.subheader("📜 Recent History (Latest on Top)")
+    st.subheader("📜 Recent History (Correct Format)")
     if sheet:
         try:
-            raw_history = sheet.get_all_values()
-            if len(raw_history) > 0:
-                # Latest entries upar dikhane ke liye reverse
-                df_history = pd.DataFrame(raw_history)
+            raw_data = sheet.get_all_values()
+            if len(raw_data) > 0:
+                df_history = pd.DataFrame(raw_data)
+                
+                # Nayi entries upar lane ke liye reverse order
+                # Lekin display format ko saaf rakhne ke liye container width use karenge
                 st.dataframe(df_history.iloc[::-1], height=600, use_container_width=True)
             else:
                 st.info("No scans yet.")
-        except: st.warning("Syncing history...")
+        except: st.warning("History sync ho rahi hai...")
