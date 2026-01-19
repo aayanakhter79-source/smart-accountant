@@ -65,74 +65,71 @@ with t1:
             img = Image.open(up)
             st.image(img, width=450)
             
-            if st.button("🚀 Start Deep Extraction"):
-                with st.spinner("AI is thinking & repairing OCR mistakes..."):
+          if st.button("🚀 Start Deep Extraction"):
+            with st.spinner("AI is thinking & repairing OCR mistakes..."):
+                prompt = """Analyze this image. 
+                1. Identify if it's a GST Invoice or Normal Table.
+                2. Extract data in this EXACT JSON format:
+                   {
+                     "confidence": 95,
+                     "data": [
+                       ["SHOP NAME", "Name", "DATE", "Date", "", "", ""],
+                       ["S.No", "Description", "HSN", "Qty", "Rate", "GST %", "Amount"],
+                       ["1", "Detailed Description", "HSN", "Qty", "Rate", "GST", "Total"]
+                     ]
+                   }
+                Rules: 
+                - S.No starts from 1 for this image. 
+                - Keep descriptions VERY LONG and DETAILED.
+                - Add CGST, SGST, Grand Total rows at the end.
+                Return ONLY JSON."""
+
+                response = model.generate_content([prompt, img])
+                full_res = safe_json_load(response.text)
+
+                if full_res and "data" in full_res:
+                    data_list = full_res["data"]
+                    conf = full_res.get("confidence", 85)
                     
-                    # AI Prompt with Confidence Score & Detailed Logic
-                    prompt = """Analyze this image. 
-                    1. Identify if it's a GST Invoice or Normal Table.
-                    2. Extract data in this EXACT JSON format:
-                       {
-                         "confidence": 95,
-                         "data": [
-                           ["SHOP NAME", "Name", "DATE", "Date", "", "", ""],
-                           ["S.No", "Description", "HSN", "Qty", "Rate", "GST %", "Amount"],
-                           ["1", "Detailed Description", "HSN", "Qty", "Rate", "GST", "Total"]
-                         ]
-                       }
-                    Rules: 
-                    - S.No starts from 1 for this image. 
-                    - Keep descriptions VERY LONG and DETAILED.
-                    - Add CGST, SGST, Grand Total rows at the end.
-                    Return ONLY JSON."""
+                    st.metric("AI Confidence", f"{conf}%")
+                    df = pd.DataFrame(data_list)
+                    st.dataframe(df, use_container_width=True)
 
-                    response = model.generate_content([prompt, img])
-                    full_res = safe_json_load(response.text)
+                    # Save to Sheet
+                    if sheet:
+                        sheet.append_rows(data_list)
+                        st.toast("Data Saved to Cloud!")
 
-                    if full_res and "data" in full_res:
-                        data_list = full_res["data"]
-                        conf = full_res.get("confidence", 85)
+                    # --- EXCEL WRAP & DESCRIPTION FIX ---
+                    out = BytesIO()
+                    with pd.ExcelWriter(out, engine='xlsxwriter') as writer:
+                        df.to_excel(writer, index=False, header=False, sheet_name='DataSnap_Export')
+                        workbook = writer.book
+                        worksheet = writer.sheets['DataSnap_Export']
                         
-                        st.metric("AI Confidence", f"{conf}%")
-                        df = pd.DataFrame(data_list)
-                        st.dataframe(df, use_container_width=True)
+                        # Text Wrap on karna taaki double line mein aaye
+                        wrap_fmt = workbook.add_format({'text_wrap': True, 'valign': 'top'})
+                        
+                        # Column Width setting
+                        worksheet.set_column('B:B', 45, wrap_fmt) # Description box width
+                        worksheet.set_column('A:A', 10)
+                        worksheet.set_column('C:G', 15)
 
-                        # Save to Sheet
-                        if sheet:
-                            sheet.append_rows(data_list)
-                            st.toast("Data Saved to Cloud!")
-
-                        # Excel Export with Width Fix (Purana Best Format)
-                       # --- Excel Export Fix (Text Wrap & Formatting) ---
-out = BytesIO()
-with pd.ExcelWriter(out, engine='xlsxwriter') as writer:
-    df.to_excel(writer, index=False, header=False, sheet_name='DataSnap_Export')
-    workbook = writer.book
-    worksheet = writer.sheets['DataSnap_Export']
-    
-    # Text Wrap format banana
-    wrap_format = workbook.add_format({'text_wrap': True, 'valign': 'top'})
-    
-    # Column B (Description) ki width 40 karke wrap on karna
-    worksheet.set_column('B:B', 40, wrap_format)
-    # Baaki columns ko normal rakhna
-    worksheet.set_column('A:A', 8)
-    worksheet.set_column('C:G', 12)
-
-st.download_button("📥 Download Pro Excel", out.getvalue(), "DataSnap_Zenith_Pro.xlsx")                    else:
-                        st.error("AI output unstable. Try a clearer image.")
+                    st.download_button("📥 Download Pro Excel", out.getvalue(), "DataSnap_Zenith_Pro.xlsx")
+                
+                else:
+                    st.error("AI output unstable. Try a clearer image.")
 
 with t2:
-    st.subheader("📜 Recent History (Correct Format)")
+    st.subheader("📜 Recent History (Newest on Top)")
     if sheet:
         try:
-            raw_data = sheet.get_all_values()
-            if len(raw_data) > 0:
-                df_history = pd.DataFrame(raw_data)
-                
-                # Nayi entries upar lane ke liye reverse order
-                # Lekin display format ko saaf rakhne ke liye container width use karenge
+            raw_history = sheet.get_all_values()
+            if len(raw_history) > 0:
+                # Latest entries upar dikhane ke liye reverse
+                df_history = pd.DataFrame(raw_history)
                 st.dataframe(df_history.iloc[::-1], height=600, use_container_width=True)
             else:
                 st.info("No scans yet.")
-        except: st.warning("History sync ho rahi hai...")
+        except:
+            st.warning("Syncing history...")                 
