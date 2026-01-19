@@ -38,7 +38,6 @@ def safe_json_load(text):
         try:
             return json.loads(text)
         except:
-            # Safai: Newlines hatana aur extra commas theek karna
             text = text.replace("\n", " ").replace(",]", "]").replace(",}", "}")
     return None
 
@@ -47,7 +46,6 @@ st.markdown("<h1 style='text-align: center; color: #00ced1;'>🚀 DataSnap AI Pr
 t1, t2 = st.tabs(["🚀 AI Smart Scanner", "📜 History & Logs"])
 
 with t1:
-    # Scan Counter Logic
     sheet = get_gsheet()
     total_scans = 0
     if sheet:
@@ -65,71 +63,66 @@ with t1:
             img = Image.open(up)
             st.image(img, width=450)
             
-          if st.button("🚀 Start Deep Extraction"):
-            with st.spinner("AI is thinking & repairing OCR mistakes..."):
-                prompt = """Analyze this image. 
-                1. Identify if it's a GST Invoice or Normal Table.
-                2. Extract data in this EXACT JSON format:
-                   {
-                     "confidence": 95,
-                     "data": [
-                       ["SHOP NAME", "Name", "DATE", "Date", "", "", ""],
-                       ["S.No", "Description", "HSN", "Qty", "Rate", "GST %", "Amount"],
-                       ["1", "Detailed Description", "HSN", "Qty", "Rate", "GST", "Total"]
-                     ]
-                   }
-                Rules: 
-                - S.No starts from 1 for this image. 
-                - Keep descriptions VERY LONG and DETAILED.
-                - Add CGST, SGST, Grand Total rows at the end.
-                Return ONLY JSON."""
+            if st.button("🚀 Start Deep Extraction"):
+                with st.spinner("AI is thinking..."):
+                    prompt = """Analyze this image. 
+                    Extract data in this JSON format:
+                    {
+                      "confidence": 95,
+                      "data": [
+                        ["SHOP NAME", "Name", "DATE", "Date", "", "", ""],
+                        ["S.No", "Description", "HSN", "Qty", "Rate", "GST %", "Amount"],
+                        ["1", "Detailed Description", "HSN", "Qty", "Rate", "GST", "Total"]
+                      ]
+                    }
+                    Rules: 
+                    - S.No starts from 1. 
+                    - Detailed descriptions are mandatory.
+                    - Total/GST rows at the end.
+                    Return ONLY JSON."""
 
-                response = model.generate_content([prompt, img])
-                full_res = safe_json_load(response.text)
+                    response = model.generate_content([prompt, img])
+                    full_res = safe_json_load(response.text)
 
-                if full_res and "data" in full_res:
-                    data_list = full_res["data"]
-                    conf = full_res.get("confidence", 85)
-                    
-                    st.metric("AI Confidence", f"{conf}%")
-                    df = pd.DataFrame(data_list)
-                    st.dataframe(df, use_container_width=True)
+                    if full_res and "data" in full_res:
+                        data_list = full_res["data"]
+                        st.metric("AI Confidence", f"{full_res.get('confidence', 85)}%")
+                        df = pd.DataFrame(data_list)
+                        st.dataframe(df, use_container_width=True)
 
-                    # Save to Sheet
-                    if sheet:
-                        sheet.append_rows(data_list)
-                        st.toast("Data Saved to Cloud!")
+                        if sheet:
+                            sheet.append_rows(data_list)
+                            st.toast("Data Saved!")
 
-                    # --- EXCEL WRAP & DESCRIPTION FIX ---
-                    out = BytesIO()
-                    with pd.ExcelWriter(out, engine='xlsxwriter') as writer:
-                        df.to_excel(writer, index=False, header=False, sheet_name='DataSnap_Export')
-                        workbook = writer.book
-                        worksheet = writer.sheets['DataSnap_Export']
+                        # --- EXCEL DOUBLE LINE (WRAP) LOGIC ---
+                        out = BytesIO()
+                        with pd.ExcelWriter(out, engine='xlsxwriter') as writer:
+                            df.to_excel(writer, index=False, header=False, sheet_name='DataSnap')
+                            workbook = writer.book
+                            worksheet = writer.sheets['DataSnap']
+                            
+                            # Wrap Format define karna (Double lines ke liye)
+                            wrap_fmt = workbook.add_format({'text_wrap': True, 'valign': 'top', 'border': 1})
+                            
+                            # Column widths aur wrap apply karna
+                            worksheet.set_column('B:B', 45, wrap_fmt) # Description box
+                            worksheet.set_column('A:A', 10)
+                            worksheet.set_column('C:G', 15)
                         
-                        # Text Wrap on karna taaki double line mein aaye
-                        wrap_fmt = workbook.add_format({'text_wrap': True, 'valign': 'top'})
-                        
-                        # Column Width setting
-                        worksheet.set_column('B:B', 45, wrap_fmt) # Description box width
-                        worksheet.set_column('A:A', 10)
-                        worksheet.set_column('C:G', 15)
-
-                    st.download_button("📥 Download Pro Excel", out.getvalue(), "DataSnap_Zenith_Pro.xlsx")
-                
-                else:
-                    st.error("AI output unstable. Try a clearer image.")
+                        st.download_button("📥 Download Pro Excel", out.getvalue(), "DataSnap_Zenith_Pro.xlsx")
+                    else:
+                        st.error("AI breakdown. Clear image upload karein.")
 
 with t2:
-    st.subheader("📜 Recent History (Newest on Top)")
+    st.subheader("📜 Recent History (Latest Scans First)")
     if sheet:
         try:
             raw_history = sheet.get_all_values()
             if len(raw_history) > 0:
-                # Latest entries upar dikhane ke liye reverse
+                # Latest scan hamesha upar aayega
                 df_history = pd.DataFrame(raw_history)
                 st.dataframe(df_history.iloc[::-1], height=600, use_container_width=True)
             else:
                 st.info("No scans yet.")
         except:
-            st.warning("Syncing history...")                 
+            st.warning("History sync ho rahi hai...")
