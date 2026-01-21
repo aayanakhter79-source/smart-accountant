@@ -7,8 +7,8 @@ import gspread
 from google.oauth2.service_account import Credentials
 from io import BytesIO
 
-# --- CONFIG ---
-st.set_page_config(page_title="DataSnap AI Pro - Zenith", layout="wide")
+# --- CONFIG & API SETUP ---
+st.set_page_config(page_title="DataSnap AI - Zenith Pro", layout="wide")
 
 genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
 try:
@@ -29,87 +29,84 @@ def get_gsheet():
 
 def safe_json_load(text):
     text = text.replace("```json","").replace("```","").strip()
-    try:
-        return json.loads(text)
-    except:
+    for _ in range(2):
         try:
-            fixed = text.replace("\n", " ").replace(",]", "]").replace(",}", "}")
-            return json.loads(fixed)
-        except: return None
+            return json.loads(text)
+        except:
+            text = text.replace("\n", " ").replace(",]", "]").replace(",}", "}")
+    return None
 
+# --- MAIN UI ---
 st.markdown("<h1 style='text-align: center; color: #00ced1;'>🚀 DataSnap AI Pro by ZENITH</h1>", unsafe_allow_html=True)
-t1, t2 = st.tabs(["🚀 AI Smart Scanner", "📜 History & Logs"])
+t1, t2 = st.tabs(["🚀 AI Scanner", "📜 Data History"])
 
 with t1:
     sheet = get_gsheet()
-    total_scans = 0
-    if sheet:
-        all_rows = sheet.get_all_values()
-        total_scans = sum(1 for r in all_rows if "SHOP NAME" in r)
-    
     c1, c2 = st.columns([3, 1])
+    
     with c2:
-        st.metric("Total Successful Scans", total_scans)
-        mode = st.radio("🧠 Mode", ["🤖 Auto Detect", "📊 Data Entry", "🧾 GST Mode"])
+        # GPT style Mode Selection
+        mode = st.radio("🧠 Select Task Type", ["📊 Data Entry Only", "🧾 GST Invoice Mode"])
+        st.info(f"Current Mode: {mode}")
 
     with c1:
         up = st.file_uploader("Upload Image", type=['jpg','png','jpeg'])
         if up:
             img = Image.open(up)
-            st.image(img, width=400)
-            if st.button("🚀 Process & Save"):
-                with st.spinner("Calculating Totals & Extracting..."):
-                    # UPDATED PROMPT: Total par focus karke
-                      if mode == "🧾 GST Mode":
-                    # GPT + Zenith Power Prompt for GST Calculation
-                    prompt = """Analyze this image and perform accurate GST calculations.
-                    Rules:
-                    1. ROW 1: ["SHOP NAME", "Full Shop Name", "DATE", "Date", "", "", ""]
-                    2. ROW 2: ["S.No", "Description", "HSN", "Qty", "Rate", "GST %", "Amount"]
-                    3. Items: Extract each item. If 'Amount' on bill includes GST, calculate back to find 'Rate'. 
-                    4. Column 'GST %' MUST be filled (e.g., 18% or 12%).
-                    5. Column 'Amount' is (Qty * Rate).
-                    6. FINAL ROWS (Calculated by you):
-                       ["", "CGST (Tax / 2)", "", "", "", "Rate%", "Calculated Value"],
-                       ["", "SGST (Tax / 2)", "", "", "", "Rate%", "Calculated Value"],
-                       ["", "GRAND TOTAL", "", "", "", "", "Total Sum"]
+            st.image(img, width=450)
+            
+            if st.button("🚀 Process & Save Data"):
+                with st.spinner("AI is analyzing based on selected mode..."):
                     
-                    Return ONLY as a JSON list of lists. Do not return empty strings for tax values."""
-                  Rules: 
-                    - MUST INCLUDE CGST, SGST, and GRAND TOTAL rows at the end.
-                    - S.No starts from 1. 
-                    - Keep descriptions very detailed."""
-                    
+                    # LOGIC: Agar mode GST hai toh tax extraction mandatory hai
+                    if mode == "🧾 GST Invoice Mode":
+                        prompt = """TASK: GST EXTRACTION.
+                        Rules:
+                        1. Even if GST is not mentioned in image, CALCULATE 18% GST logically.
+                        2. ROW 1: ["SHOP NAME", "Found Name", "DATE", "Found Date", "", "", ""]
+                        3. ROW 2: ["S.No", "Description", "HSN", "Qty", "Rate", "GST %", "Amount"]
+                        4. Extract all items. Description must be VERY DETAILED (double line style).
+                        5. Add FINAL ROWS for: CGST, SGST, and GRAND TOTAL.
+                        Return ONLY JSON list of lists."""
+                    else:
+                        # Simple Data Entry Mode
+                        prompt = """TASK: SIMPLE DATA ENTRY.
+                        Rules:
+                        1. Extract all tabular data as it is.
+                        2. Do not add extra tax rows unless they are in the image.
+                        3. Keep descriptions extremely detailed.
+                        4. Return ONLY JSON list of lists."""
+
                     try:
-                        res = model.generate_content([prompt, img])
-                        js = safe_json_load(res.text)
-                        if js:
-                            df = pd.DataFrame(js['data'])
+                        response = model.generate_content([prompt, img])
+                        data_list = safe_json_load(response.text)
+
+                        if data_list:
+                            df = pd.DataFrame(data_list)
+                            st.success(f"✅ {mode} Completed Successfully!")
                             st.dataframe(df, use_container_width=True)
-                            if sheet: sheet.append_rows(js['data'])
+
+                            if sheet:
+                                sheet.append_rows(data_list)
                             
-                            # --- EXCEL FORMATTING (TOTALS & WRAP) ---
+                            # --- EXCEL PRO FORMATTING ---
                             out = BytesIO()
                             with pd.ExcelWriter(out, engine='xlsxwriter') as writer:
-                                df.to_excel(writer, index=False, header=False, sheet_name='DataSnap')
+                                df.to_excel(writer, index=False, header=False, sheet_name='ZenithData')
                                 workbook = writer.book
-                                worksheet = writer.sheets['DataSnap']
-                                
-                                # Wrap Text + Professional Borders
-                                wrap_fmt = workbook.add_format({'text_wrap': True, 'valign': 'top', 'border': 1})
-                                
-                                worksheet.set_column('B:B', 45, wrap_fmt) # Description wrapped
+                                worksheet = writer.sheets['ZenithData']
+                                wrap_fmt = workbook.add_format({'text_wrap': True, 'valign': 'top'})
+                                worksheet.set_column('B:B', 45, wrap_fmt) # Description wrap
                                 worksheet.set_column('A:A', 8)
                                 worksheet.set_column('C:G', 15)
                             
-                            st.download_button("📥 Download Excel with Totals", out.getvalue(), "DataSnap_Zenith_Final.xlsx")
+                            st.download_button("📥 Download Pro Excel", out.getvalue(), "DataSnap_Zenith.xlsx")
                     except Exception as e:
-                        st.error(f"API Error: {e}")
+                        st.error(f"Error: {e}")
 
 with t2:
-    st.subheader("📜 History (Newest Scans Top)")
+    st.subheader("📜 Recent History (Newest on Top)")
     if sheet:
-        data = sheet.get_all_values()
-        if len(data) > 0:
-            df_hist = pd.DataFrame(data)
-            st.dataframe(df_hist.iloc[::-1], height=600, use_container_width=True)
+        raw = sheet.get_all_values()
+        if raw:
+            st.dataframe(pd.DataFrame(raw).iloc[::-1], height=600, use_container_width=True)
