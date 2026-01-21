@@ -69,15 +69,16 @@ with t1:
                         5. Add FINAL ROWS for: CGST, SGST, and GRAND TOTAL.
                         Return ONLY JSON list of lists."""
                     else:
-                        # Simple Data Entry Mode
-                        prompt = """TASK: SIMPLE DATA ENTRY.
+                        # Simple Data Entry Mode - Upgraded for multi-table images
+                        prompt = """TASK: MULTI-TABLE DATA ENTRY.
                         Rules:
-                        1. Extract all tabular data as it is.
-                        2. Do not add extra tax rows unless they are in the image.
-                        3. Keep descriptions extremely detailed.
-                        4. Return ONLY JSON list of lists."""
-
-                    try:
+                        1. Identify all different tables in the image.
+                        2. For each table, add a clear HEADER row in BOLD style text.
+                        3. Add one EMPTY ROW between different tables.
+                        4. Extract columns exactly as seen (e.g., Employee ID, Qty, etc.).
+                        5. If any text is struck out (cut), mention it as 'Corrected' in Description.
+                        Return ONLY JSON list of lists."""
+                  try:
                         response = model.generate_content([prompt, img])
                         data_list = safe_json_load(response.text)
 
