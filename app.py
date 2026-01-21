@@ -45,9 +45,8 @@ with t1:
     c1, c2 = st.columns([3, 1])
     
     with c2:
-        # GPT style Mode Selection
         mode = st.radio("🧠 Select Task Type", ["📊 Data Entry Only", "🧾 GST Invoice Mode"])
-        st.info(f"Current Mode: {mode}")
+        st.info(f"Mode: {mode}")
 
     with c1:
         up = st.file_uploader("Upload Image", type=['jpg','png','jpeg'])
@@ -56,58 +55,50 @@ with t1:
             st.image(img, width=450)
             
             if st.button("🚀 Process & Save Data"):
-                with st.spinner("AI is analyzing based on selected mode..."):
-                    
-                    # LOGIC: Agar mode GST hai toh tax extraction mandatory hai
+                with st.spinner("AI is analyzing..."):
+                    # GPT Instruction logic based on mode
                     if mode == "🧾 GST Invoice Mode":
                         prompt = """TASK: GST EXTRACTION.
                         Rules:
-                        1. Even if GST is not mentioned in image, CALCULATE 18% GST logically.
-                        2. ROW 1: ["SHOP NAME", "Found Name", "DATE", "Found Date", "", "", ""]
-                        3. ROW 2: ["S.No", "Description", "HSN", "Qty", "Rate", "GST %", "Amount"]
-                        4. Extract all items. Description must be VERY DETAILED (double line style).
-                        5. Add FINAL ROWS for: CGST, SGST, and GRAND TOTAL.
+                        1. Even if GST missing, calculate 18% logically.
+                        2. Row 1: Shop Name & Date.
+                        3. Columns: S.No, Description, HSN, Qty, Rate, GST %, Amount.
+                        4. Add Mandatory Final Rows: CGST, SGST, GRAND TOTAL.
                         Return ONLY JSON list of lists."""
                     else:
-                        # Simple Data Entry Mode - Upgraded for multi-table images
-                        prompt = """TASK: MULTI-TABLE DATA ENTRY.
+                        prompt = """TASK: DATA ENTRY.
                         Rules:
-                        1. Identify all different tables in the image.
-                        2. For each table, add a clear HEADER row in BOLD style text.
-                        3. Add one EMPTY ROW between different tables.
-                        4. Extract columns exactly as seen (e.g., Employee ID, Qty, etc.).
-                        5. If any text is struck out (cut), mention it as 'Corrected' in Description.
+                        1. Identify and extract all tables.
+                        2. Keep descriptions very detailed.
+                        3. Add empty rows between different tables.
                         Return ONLY JSON list of lists."""
-                  try:
+
+                    # --- YE HAI TRY BLOCK KI SAHI ALIGNMENT ---
+                    try:
                         response = model.generate_content([prompt, img])
                         data_list = safe_json_load(response.text)
 
                         if data_list:
                             df = pd.DataFrame(data_list)
-                            st.success(f"✅ {mode} Completed Successfully!")
+                            st.success(f"✅ {mode} Done!")
                             st.dataframe(df, use_container_width=True)
 
                             if sheet:
                                 sheet.append_rows(data_list)
                             
-                            # --- EXCEL PRO FORMATTING ---
+                            # Excel formatting (Double line/Wrap)
                             out = BytesIO()
                             with pd.ExcelWriter(out, engine='xlsxwriter') as writer:
                                 df.to_excel(writer, index=False, header=False, sheet_name='ZenithData')
                                 workbook = writer.book
                                 worksheet = writer.sheets['ZenithData']
-                                wrap_fmt = workbook.add_format({'text_wrap': True, 'valign': 'top'})
-                                worksheet.set_column('B:B', 45, wrap_fmt) # Description wrap
+                                wrap_fmt = workbook.add_format({'text_wrap': True, 'valign': 'top', 'border': 1})
+                                worksheet.set_column('B:B', 45, wrap_fmt)
                                 worksheet.set_column('A:A', 8)
                                 worksheet.set_column('C:G', 15)
                             
                             st.download_button("📥 Download Pro Excel", out.getvalue(), "DataSnap_Zenith.xlsx")
+                        else:
+                            st.error("AI error: Format not supported.")
                     except Exception as e:
-                        st.error(f"Error: {e}")
-
-with t2:
-    st.subheader("📜 Recent History (Newest on Top)")
-    if sheet:
-        raw = sheet.get_all_values()
-        if raw:
-            st.dataframe(pd.DataFrame(raw).iloc[::-1], height=600, use_container_width=True)
+                        st.error(f"Limit Error: {e}")
