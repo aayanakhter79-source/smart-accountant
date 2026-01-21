@@ -60,16 +60,22 @@ with t1:
             if st.button("🚀 Process & Save"):
                 with st.spinner("Calculating Totals & Extracting..."):
                     # UPDATED PROMPT: Total par focus karke
-                    prompt = """Extract data and return ONLY JSON.
-                    { "confidence": 95, "data": [
-                    ["SHOP NAME", "Name", "DATE", "Date", "", "", ""],
-                    ["S.No", "Description", "HSN", "Qty", "Rate", "GST %", "Amount"],
-                    ["1", "Detail", "HSN", "Qty", "Rate", "GST", "Amount"],
-                    ["", "CGST", "", "", "", "", "Value"],
-                    ["", "SGST", "", "", "", "", "Value"],
-                    ["", "GRAND TOTAL", "", "", "", "", "Value"]
-                    ]}
-                    Rules: 
+                      if mode == "🧾 GST Mode":
+                    # GPT + Zenith Power Prompt for GST Calculation
+                    prompt = """Analyze this image and perform accurate GST calculations.
+                    Rules:
+                    1. ROW 1: ["SHOP NAME", "Full Shop Name", "DATE", "Date", "", "", ""]
+                    2. ROW 2: ["S.No", "Description", "HSN", "Qty", "Rate", "GST %", "Amount"]
+                    3. Items: Extract each item. If 'Amount' on bill includes GST, calculate back to find 'Rate'. 
+                    4. Column 'GST %' MUST be filled (e.g., 18% or 12%).
+                    5. Column 'Amount' is (Qty * Rate).
+                    6. FINAL ROWS (Calculated by you):
+                       ["", "CGST (Tax / 2)", "", "", "", "Rate%", "Calculated Value"],
+                       ["", "SGST (Tax / 2)", "", "", "", "Rate%", "Calculated Value"],
+                       ["", "GRAND TOTAL", "", "", "", "", "Total Sum"]
+                    
+                    Return ONLY as a JSON list of lists. Do not return empty strings for tax values."""
+                  Rules: 
                     - MUST INCLUDE CGST, SGST, and GRAND TOTAL rows at the end.
                     - S.No starts from 1. 
                     - Keep descriptions very detailed."""
