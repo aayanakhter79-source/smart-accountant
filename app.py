@@ -55,38 +55,32 @@ with t1:
             st.image(img, width=450)
             
             if st.button("🚀 Process & Save Data"):
-                with st.spinner("AI is analyzing..."):
-                    # GPT Instruction logic based on mode
+                with st.spinner("AI is analyzing & cleaning data..."):
                     if mode == "🧾 GST Invoice Mode":
-                        prompt = """TASK: GST EXTRACTION.
-                        Rules:
-                        1. Even if GST missing, calculate 18% logically.
-                        2. Row 1: Shop Name & Date.
-                        3. Columns: S.No, Description, HSN, Qty, Rate, GST %, Amount.
-                        4. Add Mandatory Final Rows: CGST, SGST, GRAND TOTAL.
-                        Return ONLY JSON list of lists."""
+                        prompt = "Extract GST Invoice data. Return ONLY JSON list of lists. Include Shop Name, Items, CGST, SGST, Grand Total."
                     else:
-                        prompt = """TASK: DATA ENTRY.
-                        Rules:
-                        1. Identify and extract all tables.
-                        2. Keep descriptions very detailed.
-                        3. Add empty rows between different tables.
-                        Return ONLY JSON list of lists."""
+                        # Data entry prompt ko thoda chota kiya taaki error na aaye
+                        prompt = "Extract all tables from image. Return ONLY JSON list of lists. Keep it simple and clean."
 
-                    # --- YE HAI TRY BLOCK KI SAHI ALIGNMENT ---
                     try:
                         response = model.generate_content([prompt, img])
                         data_list = safe_json_load(response.text)
 
                         if data_list:
-                            df = pd.DataFrame(data_list)
-                            st.success(f"✅ {mode} Done!")
+                            # --- CLEANING DATA (Error Fix) ---
+                            # Google Sheet mein bhejnes se pehle data ko string mein convert karna
+                            clean_data = [[str(cell) for cell in row] for row in data_list]
+                            
+                            df = pd.DataFrame(clean_data)
+                            st.success(f"✅ {mode} Completed!")
                             st.dataframe(df, use_container_width=True)
 
                             if sheet:
-                                sheet.append_rows(data_list)
+                                # Ek saath bhejny ki jagah 20-20 rows karke bhejenge (Safe Method)
+                                for i in range(0, len(clean_data), 20):
+                                    sheet.append_rows(clean_data[i:i+20])
                             
-                            # Excel formatting (Double line/Wrap)
+                            # Excel Formatting
                             out = BytesIO()
                             with pd.ExcelWriter(out, engine='xlsxwriter') as writer:
                                 df.to_excel(writer, index=False, header=False, sheet_name='ZenithData')
@@ -99,6 +93,6 @@ with t1:
                             
                             st.download_button("📥 Download Pro Excel", out.getvalue(), "DataSnap_Zenith.xlsx")
                         else:
-                            st.error("AI error: Format not supported.")
+                            st.error("AI couldn't format the data. Please try a clearer photo.")
                     except Exception as e:
-                        st.error(f"Limit Error: {e}")
+                        st.error(f"Sheet Error: {e}")
