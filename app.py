@@ -7,7 +7,7 @@ import gspread
 from google.oauth2.service_account import Credentials
 from io import BytesIO
 
-# --- CONFIG ---
+# --- CONFIG & API SETUP ---
 st.set_page_config(page_title="DataSnap AI - Zenith Pro", layout="wide")
 
 genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
@@ -19,6 +19,7 @@ try:
 
 except: st.error("AI Error")
 
+
 def get_gsheet():
     try:
         scope = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
@@ -29,20 +30,26 @@ def get_gsheet():
 
 def safe_json_load(text):
     text = text.replace("```json","").replace("```","").strip()
-    try:
-        return json.loads(text)
-    except:
-        return None
+    for _ in range(2):
+        try:
+            return json.loads(text)
+        except:
+            text = text.replace("\n", " ").replace(",]", "]").replace(",}", "}")
+    return None
 
+# --- MAIN UI ---
 st.markdown("<h1 style='text-align: center; color: #00ced1;'>🚀 DataSnap AI Pro by ZENITH</h1>", unsafe_allow_html=True)
 t1, t2 = st.tabs(["🚀 AI Scanner", "📜 Data History"])
 
 with t1:
     sheet = get_gsheet()
     c1, c2 = st.columns([3, 1])
-    with c2:
-        mode = st.radio("🧠 Select Mode", ["📊 Data Entry Only", "🧾 GST Invoice Mode"])
     
+    with c2:
+        # GPT style Mode Selection
+        mode = st.radio("🧠 Select Task Type", ["📊 Data Entry Only", "🧾 GST Invoice Mode"])
+        st.info(f"Current Mode: {mode}")
+
     with c1:
         up = st.file_uploader("Upload Image", type=['jpg','png','jpeg'])
         if up:
@@ -50,62 +57,57 @@ with t1:
             st.image(img, width=450)
             
             if st.button("🚀 Process & Save Data"):
-                with st.spinner("AI is Extracting Every Detail..."):
-                    # --- POWER PROMPT ---
+                with st.spinner("AI is analyzing based on selected mode..."):
+                    
+                    # LOGIC: Agar mode GST hai toh tax extraction mandatory hai
                     if mode == "🧾 GST Invoice Mode":
-                        prompt = """Extract ALL data from this GST invoice. 
-                        Return ONLY a JSON list of lists.
-                        Include: ["SHOP NAME", "Name", "DATE", "Date", "", "", ""], 
-                        ["S.No", "Description", "HSN", "Qty", "Rate", "GST %", "Amount"],
-                        Then all items, then ["", "CGST", "", "", "", "", "Value"], 
-                        ["", "SGST", "", "", "", "", "Value"], 
-                        ["", "GRAND TOTAL", "", "", "", "", "Total"]."""
+                        prompt = """TASK: GST EXTRACTION.
+                        Rules:
+                        1. Even if GST is not mentioned in image, CALCULATE 18% GST logically.
+                        2. ROW 1: ["SHOP NAME", "Found Name", "DATE", "Found Date", "", "", ""]
+                        3. ROW 2: ["S.No", "Description", "HSN", "Qty", "Rate", "GST %", "Amount"]
+                        4. Extract all items. Description must be VERY DETAILED (double line style).
+                        5. Add FINAL ROWS for: CGST, SGST, and GRAND TOTAL.
+                        Return ONLY JSON list of lists."""
                     else:
-                        prompt = """Extract ALL tables and text from this image as a structured table.
-                        Return ONLY a JSON list of lists.
-                        Capture every row and column. Keep descriptions very long and detailed."""
+                        # Simple Data Entry Mode
+                        prompt = """TASK: SIMPLE DATA ENTRY.
+                        Rules:
+                        1. Extract all tabular data as it is.
+                        2. Do not add extra tax rows unless they are in the image.
+                        3. Keep descriptions extremely detailed.
+                        4. Return ONLY JSON list of lists."""
 
                     try:
                         response = model.generate_content([prompt, img])
-                        # AI raw response se JSON nikalna
-                        raw_text = response.text
-                        data_list = safe_json_load(raw_text)
+                        data_list = safe_json_load(response.text)
 
-                        if data_list and len(data_list) > 0:
-                            # Safai: Sabko text mein badlo
-                            clean_data = [[str(c) if c else "" for c in row] for row in data_list]
-                            df = pd.DataFrame(clean_data)
-                            
-                            st.success("✅ Data Extracted!")
+                        if data_list:
+                            df = pd.DataFrame(data_list)
+                            st.success(f"✅ {mode} Completed Successfully!")
                             st.dataframe(df, use_container_width=True)
 
                             if sheet:
-                                sheet.append_rows(clean_data)
-                                st.toast("Saved to Google Sheets!")
-
-                            # Excel File Generation
+                                sheet.append_rows(data_list)
+                            
+                            # --- EXCEL PRO FORMATTING ---
                             out = BytesIO()
                             with pd.ExcelWriter(out, engine='xlsxwriter') as writer:
-                                df.to_excel(writer, index=False, header=False, sheet_name='Data')
+                                df.to_excel(writer, index=False, header=False, sheet_name='ZenithData')
                                 workbook = writer.book
-                                worksheet = writer.sheets['Data']
-                                wrap_fmt = workbook.add_format({'text_wrap': True, 'valign': 'top', 'border': 1})
-                                worksheet.set_column('B:B', 50, wrap_fmt)
-                                worksheet.set_column('A:A', 10)
+                                worksheet = writer.sheets['ZenithData']
+                                wrap_fmt = workbook.add_format({'text_wrap': True, 'valign': 'top'})
+                                worksheet.set_column('B:B', 45, wrap_fmt) # Description wrap
+                                worksheet.set_column('A:A', 8)
                                 worksheet.set_column('C:G', 15)
                             
-                            st.download_button("📥 Download Excel", out.getvalue(), "DataSnap_Zenith_Final.xlsx")
-                        else:
-                            st.error("AI returned empty data. Please try a clearer image.")
+                            st.download_button("📥 Download Pro Excel", out.getvalue(), "DataSnap_Zenith.xlsx")
                     except Exception as e:
                         st.error(f"Error: {e}")
 
 with t2:
+    st.subheader("📜 Recent History (Newest on Top)")
     if sheet:
-        try:
-            data = sheet.get_all_values()
-            if data:
-                st.dataframe(pd.DataFrame(data).iloc[::-1], height=500, use_container_width=True)
-            else:
-                st.info("No history yet.")
-        except: st.warning("Syncing history...")
+        raw = sheet.get_all_values()
+        if raw:
+            st.dataframe(pd.DataFrame(raw).iloc[::-1], height=600, use_container_width=True)
