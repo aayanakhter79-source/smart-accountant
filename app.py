@@ -30,12 +30,10 @@ def get_gsheet():
 
 def safe_json_load(text):
     text = text.replace("```json","").replace("```","").strip()
-    for _ in range(2):
-        try:
-            return json.loads(text)
-        except:
-            text = text.replace("\n", " ").replace(",]", "]").replace(",}", "}")
-    return None
+    try:
+        return json.loads(text)
+    except:
+        return None
 
 # --- MAIN UI ---
 st.markdown("<h1 style='text-align: center; color: #00ced1;'>🚀 DataSnap AI Pro by ZENITH</h1>", unsafe_allow_html=True)
@@ -46,9 +44,8 @@ with t1:
     c1, c2 = st.columns([3, 1])
     
     with c2:
-        # GPT style Mode Selection
-        mode = st.radio("🧠 Select Task Type", ["📊 Data Entry Only", "🧾 GST Invoice Mode"])
-        st.info(f"Current Mode: {mode}")
+        mode = st.radio("🧠 Select Mode", ["📊 Advanced Data Entry", "🧾 GST Invoice Mode"])
+        st.info(f"Active Mode: {mode}")
 
     with c1:
         up = st.file_uploader("Upload Image", type=['jpg','png','jpeg'])
@@ -56,39 +53,44 @@ with t1:
             img = Image.open(up)
             st.image(img, width=450)
             
-            if st.button("🚀 Process & Save Data"):
-                with st.spinner("AI is analyzing based on selected mode..."):
+            if st.button("🚀 Process & Save"):
+                with st.spinner("AI is reading data..."):
                     
-                    # LOGIC: Agar mode GST hai toh tax extraction mandatory hai
                     if mode == "🧾 GST Invoice Mode":
+                        # SHOP NAME FIX: Clearly defined single cell
                         prompt = """TASK: GST EXTRACTION.
                         Rules:
-                        1. Even if GST is not mentioned in image, CALCULATE 18% GST logically.
-                        2. ROW 1: ["SHOP NAME", "Found Name", "DATE", "Found Date", "", "", ""]
-                        3. ROW 2: ["S.No", "Description", "HSN", "Qty", "Rate", "GST %", "Amount"]
-                        4. Extract all items. Description must be VERY DETAILED (double line style).
-                        5. Add FINAL ROWS for: CGST, SGST, and GRAND TOTAL.
+                        1. Row 1: ["SHOP NAME", "Write Name Here", "DATE", "Date", "", "", ""] (DO NOT REPEAT NAME).
+                        2. Row 2: ["S.No", "Description", "HSN", "Qty", "Rate", "GST %", "Amount"]
+                        3. Extract all items with long descriptions.
+                        4. Mandatory: CGST, SGST, GRAND TOTAL rows at bottom.
                         Return ONLY JSON list of lists."""
                     else:
-                        # Simple Data Entry Mode
-                        prompt = """TASK: SIMPLE DATA ENTRY.
+                        # DATA ENTRY PRO: High detail for registers/notebooks
+                        prompt = """TASK: ADVANCED DATA ENTRY.
                         Rules:
-                        1. Extract all tabular data as it is.
-                        2. Do not add extra tax rows unless they are in the image.
-                        3. Keep descriptions extremely detailed.
-                        4. Return ONLY JSON list of lists."""
+                        1. Scan the entire image for any tabular data, lists, or handwritten notes.
+                        2. Create a clean table with appropriate headers.
+                        3. Capture EVERY ROW. Do not summarize. 
+                        4. If multiple tables exist, add an empty row between them.
+                        5. Keep descriptions extremely detailed.
+                        Return ONLY JSON list of lists."""
 
                     try:
                         response = model.generate_content([prompt, img])
                         data_list = safe_json_load(response.text)
 
                         if data_list:
-                            df = pd.DataFrame(data_list)
-                            st.success(f"✅ {mode} Completed Successfully!")
+                            # Safai: Convert everything to string for Google Sheets
+                            clean_data = [[str(cell) if cell else "" for cell in row] for row in data_list]
+                            df = pd.DataFrame(clean_data)
+                            
+                            st.success("✅ Extraction Complete!")
                             st.dataframe(df, use_container_width=True)
 
                             if sheet:
-                                sheet.append_rows(data_list)
+                                sheet.append_rows(clean_data)
+                                st.toast("Synced to Cloud!")
                             
                             # --- EXCEL PRO FORMATTING ---
                             out = BytesIO()
@@ -96,18 +98,19 @@ with t1:
                                 df.to_excel(writer, index=False, header=False, sheet_name='ZenithData')
                                 workbook = writer.book
                                 worksheet = writer.sheets['ZenithData']
-                                wrap_fmt = workbook.add_format({'text_wrap': True, 'valign': 'top'})
-                                worksheet.set_column('B:B', 45, wrap_fmt) # Description wrap
-                                worksheet.set_column('A:A', 8)
+                                wrap_fmt = workbook.add_format({'text_wrap': True, 'valign': 'top', 'border': 1})
+                                worksheet.set_column('B:B', 55, wrap_fmt) # Extra width for data entry
+                                worksheet.set_column('A:A', 10)
                                 worksheet.set_column('C:G', 15)
                             
-                            st.download_button("📥 Download Pro Excel", out.getvalue(), "DataSnap_Zenith.xlsx")
+                            st.download_button("📥 Download Excel", out.getvalue(), "DataSnap_Zenith_Pro.xlsx")
                     except Exception as e:
                         st.error(f"Error: {e}")
 
 with t2:
-    st.subheader("📜 Recent History (Newest on Top)")
     if sheet:
-        raw = sheet.get_all_values()
-        if raw:
-            st.dataframe(pd.DataFrame(raw).iloc[::-1], height=600, use_container_width=True)
+        try:
+            raw = sheet.get_all_values()
+            if raw:
+                st.dataframe(pd.DataFrame(raw).iloc[::-1], height=600, use_container_width=True)
+        except: st.warning("Syncing history...")
