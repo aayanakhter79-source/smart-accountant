@@ -45,7 +45,6 @@ with t1:
     
     with c2:
         mode = st.radio("🧠 Select Mode", ["📊 Advanced Data Entry", "🧾 GST Invoice Mode"])
-        st.info(f"Active Mode: {mode}")
 
     with c1:
         up = st.file_uploader("Upload Image", type=['jpg','png','jpeg'])
@@ -54,26 +53,22 @@ with t1:
             st.image(img, width=450)
             
             if st.button("🚀 Process & Save"):
-                with st.spinner("AI is reading data..."):
+                with st.spinner("AI is scanning every line..."):
                     
                     if mode == "🧾 GST Invoice Mode":
-                        # SHOP NAME FIX: Clearly defined single cell
-                        prompt = """TASK: GST EXTRACTION.
-                        Rules:
-                        1. Row 1: ["SHOP NAME", "Write Name Here", "DATE", "Date", "", "", ""] (DO NOT REPEAT NAME).
-                        2. Row 2: ["S.No", "Description", "HSN", "Qty", "Rate", "GST %", "Amount"]
-                        3. Extract all items with long descriptions.
-                        4. Mandatory: CGST, SGST, GRAND TOTAL rows at bottom.
-                        Return ONLY JSON list of lists."""
+                        # SHOP NAME REPEAT FIX
+                        prompt = """Extract GST Data. 
+                        Row 1 MUST BE EXACTLY: ["SHOP NAME", "Only Name", "DATE", "Only Date", "", "", ""]
+                        Row 2: ["S.No", "Description", "HSN", "Qty", "Rate", "GST %", "Amount"]
+                        Include Tax & Totals at the end. Return JSON list of lists."""
                     else:
-                        # DATA ENTRY PRO: High detail for registers/notebooks
-                        prompt = """TASK: ADVANCED DATA ENTRY.
+                        # DATA ENTRY PRO (HANDWRITTEN SPECIAL)
+                        prompt = """Identify all text in this image. 
+                        Convert every handwritten row into a structured table row.
                         Rules:
-                        1. Scan the entire image for any tabular data, lists, or handwritten notes.
-                        2. Create a clean table with appropriate headers.
-                        3. Capture EVERY ROW. Do not summarize. 
-                        4. If multiple tables exist, add an empty row between them.
-                        5. Keep descriptions extremely detailed.
+                        1. Capture every name, number, and date.
+                        2. If columns are not clear, create 3-4 general columns like 'Date', 'Description', 'Value', 'Notes'.
+                        3. Do not skip any line. Do not summarize.
                         Return ONLY JSON list of lists."""
 
                     try:
@@ -81,8 +76,8 @@ with t1:
                         data_list = safe_json_load(response.text)
 
                         if data_list:
-                            # Safai: Convert everything to string for Google Sheets
-                            clean_data = [[str(cell) if cell else "" for cell in row] for row in data_list]
+                            # Safai: Har cell ko simple text mein convert karna
+                            clean_data = [[str(c) if c else "" for c in row] for row in data_list]
                             df = pd.DataFrame(clean_data)
                             
                             st.success("✅ Extraction Complete!")
@@ -92,25 +87,17 @@ with t1:
                                 sheet.append_rows(clean_data)
                                 st.toast("Synced to Cloud!")
                             
-                            # --- EXCEL PRO FORMATTING ---
+                            # Excel Formatting
                             out = BytesIO()
                             with pd.ExcelWriter(out, engine='xlsxwriter') as writer:
                                 df.to_excel(writer, index=False, header=False, sheet_name='ZenithData')
                                 workbook = writer.book
                                 worksheet = writer.sheets['ZenithData']
                                 wrap_fmt = workbook.add_format({'text_wrap': True, 'valign': 'top', 'border': 1})
-                                worksheet.set_column('B:B', 55, wrap_fmt) # Extra width for data entry
+                                worksheet.set_column('B:B', 60, wrap_fmt) # Badi description ke liye
                                 worksheet.set_column('A:A', 10)
                                 worksheet.set_column('C:G', 15)
                             
-                            st.download_button("📥 Download Excel", out.getvalue(), "DataSnap_Zenith_Pro.xlsx")
+                            st.download_button("📥 Download Final Excel", out.getvalue(), "DataSnap_Zenith_Final.xlsx")
                     except Exception as e:
                         st.error(f"Error: {e}")
-
-with t2:
-    if sheet:
-        try:
-            raw = sheet.get_all_values()
-            if raw:
-                st.dataframe(pd.DataFrame(raw).iloc[::-1], height=600, use_container_width=True)
-        except: st.warning("Syncing history...")
