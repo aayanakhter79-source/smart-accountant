@@ -46,8 +46,7 @@ with t1:
     
     with c2:
         mode = st.radio("🧠 Select Task Type", ["📊 Data Entry Only", "🧾 GST Invoice Mode"])
-        st.info(f"Mode: {mode}")
-
+    
     with c1:
         up = st.file_uploader("Upload Image", type=['jpg','png','jpeg'])
         if up:
@@ -55,32 +54,34 @@ with t1:
             st.image(img, width=450)
             
             if st.button("🚀 Process & Save Data"):
-                with st.spinner("AI is analyzing & cleaning data..."):
+                with st.spinner("Processing..."):
+                    # GPT Instructions
                     if mode == "🧾 GST Invoice Mode":
-                        prompt = "Extract GST Invoice data. Return ONLY JSON list of lists. Include Shop Name, Items, CGST, SGST, Grand Total."
+                        prompt = "Extract GST Invoice. Include Shop Name, Items, CGST, SGST, Total. Return JSON list of lists."
                     else:
-                        # Data entry prompt ko thoda chota kiya taaki error na aaye
-                        prompt = "Extract all tables from image. Return ONLY JSON list of lists. Keep it simple and clean."
+                        prompt = "Extract all tables. Keep descriptions detailed. Return JSON list of lists."
 
                     try:
                         response = model.generate_content([prompt, img])
                         data_list = safe_json_load(response.text)
 
                         if data_list:
-                            # --- CLEANING DATA (Error Fix) ---
-                            # Google Sheet mein bhejnes se pehle data ko string mein convert karna
-                            clean_data = [[str(cell) for cell in row] for row in data_list]
-                            
+                            # 1. Data Safai (String conversion to avoid Sheet Errors)
+                            clean_data = [[str(cell).strip() for cell in row] for row in data_list]
                             df = pd.DataFrame(clean_data)
-                            st.success(f"✅ {mode} Completed!")
+                            
+                            st.success("✅ Data Processed!")
                             st.dataframe(df, use_container_width=True)
 
+                            # 2. Safe Save to Google Sheets
                             if sheet:
-                                # Ek saath bhejny ki jagah 20-20 rows karke bhejenge (Safe Method)
-                                for i in range(0, len(clean_data), 20):
-                                    sheet.append_rows(clean_data[i:i+20])
-                            
-                            # Excel Formatting
+                                try:
+                                    sheet.append_rows(clean_data)
+                                    st.toast("Saved to Cloud!")
+                                except Exception as e:
+                                    st.error(f"Sheet Sync Error: {e}")
+
+                            # 3. Excel File Generation
                             out = BytesIO()
                             with pd.ExcelWriter(out, engine='xlsxwriter') as writer:
                                 df.to_excel(writer, index=False, header=False, sheet_name='ZenithData')
@@ -91,8 +92,23 @@ with t1:
                                 worksheet.set_column('A:A', 8)
                                 worksheet.set_column('C:G', 15)
                             
-                            st.download_button("📥 Download Pro Excel", out.getvalue(), "DataSnap_Zenith.xlsx")
+                            st.download_button("📥 Download Excel File", out.getvalue(), "DataSnap_Zenith.xlsx")
                         else:
-                            st.error("AI couldn't format the data. Please try a clearer photo.")
+                            st.error("AI couldn't read the data. Try again.")
                     except Exception as e:
-                        st.error(f"Sheet Error: {e}")
+                        st.error(f"Process Error: {e}")
+
+with t2:
+    st.subheader("📜 Recent History")
+    if sheet:
+        try:
+            # History loading with error protection
+            raw_history = sheet.get_all_values()
+            if raw_history:
+                df_history = pd.DataFrame(raw_history)
+                # Latest entries on top
+                st.dataframe(df_history.iloc[::-1], height=600, use_container_width=True)
+            else:
+                st.info("No history found in sheets.")
+        except Exception as e:
+            st.warning("Wait... History is syncing from Google Sheets.")
