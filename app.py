@@ -58,19 +58,18 @@ if up:
 
     if st.button("📊 Scan Invoice & Generate Excel"):
         with st.spinner("Scanning invoice..."):
-            prompt = """
-You are a GST accountant AI.
-Extract structured invoice data.
+           prompt = """
+You are an expert GST Accountant. Analyze this invoice image carefully.
+Extract the data into a structured table format.
 
-Return ONLY JSON list of rows.
-
-First row must be:
-["Invoice No","Date","Party Name","GSTIN","Taxable Value","CGST","SGST","IGST","Total"]
-
-Then one row per line item.
-If any field is missing, leave it blank.
+RULES:
+1. First Row (Headers): ["Invoice No", "Date", "Party Name", "GSTIN", "Taxable Value", "CGST", "SGST", "IGST", "Grand Total"]
+2. For every item/product in the bill, create a new row.
+3. Repeat the Invoice No, Date, and Party Name for every row (this is important for Excel accounting).
+4. If it's a Local sale, fill CGST/SGST. If it's Inter-state, fill IGST. 
+5. Calculate mathematically: Taxable Value + Taxes = Grand Total.
+6. Return ONLY a JSON list of lists. No extra text.
 """
-
             response = model.generate_content([prompt, img])
             data_list = safe_json_load(response.text)
 
