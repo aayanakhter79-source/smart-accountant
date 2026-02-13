@@ -7,9 +7,8 @@ import gspread
 from google.oauth2.service_account import Credentials
 from io import BytesIO
 
-# ---------------- CONFIG ----------------
-st.set_page_config(page_title="DataSnap AI for GST Accountants", layout="wide")
-
+# --- CONFIG ---
+st.set_page_config(page_title="DataSnap AI Pro - GST Edition", layout="wide")
 genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
 try:
 
@@ -20,83 +19,60 @@ try:
 except: st.error("AI Error")
 
 
-# ---------------- GOOGLE SHEET ----------------
-def get_gsheet():
-    try:
-        scope = ["https://www.googleapis.com/auth/spreadsheets",
-                 "https://www.googleapis.com/auth/drive"]
-        creds = Credentials.from_service_account_info(
-            st.secrets["gcp_service_account"], scopes=scope
-        )
-        client = gspread.authorize(creds)
-        return client.open_by_key(st.secrets["GOOGLE_SHEET_ID"]).sheet1
-    except:
-        return None
+# --- UI ---
+st.markdown("<h1 style='text-align:center;color:#00ced1;'>💼 DataSnap AI: Accountant V2</h1>", unsafe_allow_html=True)
 
-# ---------------- JSON CLEANER ----------------
-def safe_json_load(text):
-    text = text.replace("```json","").replace("```","").strip()
-    try:
-        return json.loads(text)
-    except:
-        return None
+t1, t2 = st.tabs(["🚀 Professional Scanner", "📜 Audit History"])
 
-# ---------------- UI ----------------
-st.markdown(
-    "<h1 style='text-align:center;color:#00ced1;'>🚀 DataSnap AI for GST Accountants</h1>"
-    "<p style='text-align:center;'>Turn invoice photos into Excel in seconds</p>",
-    unsafe_allow_html=True
-)
+with t1:
+    up = st.file_uploader("Upload GST Invoice", type=["jpg","jpeg","png"])
+    if up:
+        img = Image.open(up)
+        st.image(img, width=400)
+        
+        if st.button("📊 Generate Accountant-Ready Excel"):
+            with st.spinner("Analyzing GST Compliance..."):
+                # UPGRADED PROMPT FOR V2
+                prompt = """
+                You are a Senior GST Consultant. Extract data for GSTR-1 filing.
+                
+                Columns Required:
+                ["Invoice No", "Date", "Party Name", "GSTIN", "Item Description", "HSN", "Qty", "Taxable Value", "GST %", "CGST", "SGST", "IGST", "Total"]
+                
+                Rules:
+                1. Extract every line item separately.
+                2. Repeat Invoice No, Date, and GSTIN for every line item (for Tally import).
+                3. Identify HSN codes from the items.
+                4. Logic: Taxable Value * GST% = Total Tax.
+                5. Return ONLY a JSON list of lists.
+                """
+                
+                try:
+                    response = model.generate_content([prompt, img])
+                    data_list = json.loads(response.text.replace("```json","").replace("```","").strip())
+                    
+                    if data_list:
+                        df = pd.DataFrame(data_list)
+                        st.success("✅ GSTR-1 Compatible Data Extracted!")
+                        st.dataframe(df, use_container_width=True)
 
-sheet = get_gsheet()
-st.subheader("Upload GST Invoice")
-up = st.file_uploader("Upload Invoice Image", type=["jpg","jpeg","png"])
+                        # Excel Formatting Pro
+                        out = BytesIO()
+                        with pd.ExcelWriter(out, engine="xlsxwriter") as writer:
+                            df.to_excel(writer, index=False, header=False, sheet_name="GST_Data")
+                            workbook = writer.book
+                            worksheet = writer.sheets["GST_Data"]
+                            
+                            # Professional Excel Styling
+                            header_fmt = workbook.add_format({'bold': True, 'bg_color': '#D7E4BC', 'border': 1})
+                            cell_fmt = workbook.add_format({'border': 1, 'text_wrap': True})
+                            
+                            for col_num, value in enumerate(df.columns.values):
+                                worksheet.write(0, col_num, value, header_fmt)
+                            
+                            worksheet.set_column("A:M", 15, cell_fmt) # All columns wide
+                            worksheet.set_column("E:E", 35, cell_fmt) # Description extra wide
 
-if up:
-    img = Image.open(up)
-    st.image(img, width=400)
-
-    if st.button("📊 Scan Invoice & Generate Excel"):
-        with st.spinner("Scanning invoice..."):
-            prompt = """
-            You are an expert GST Accountant. Analyze this invoice image carefully.
-            Extract the data into a structured table format.
-
-            RULES:
-            1. First Row (Headers): ["Invoice No", "Date", "Party Name", "GSTIN", "Taxable Value", "CGST", "SGST", "IGST", "Grand Total"]
-            2. For every item/product in the bill, create a new row.
-            3. Repeat the Invoice No, Date, and Party Name for every row (this is important for Excel accounting).
-            4. If it's a Local sale, fill CGST/SGST. If it's Inter-state, fill IGST. 
-            5. Calculate mathematically: Taxable Value + Taxes = Grand Total.
-            6. Return ONLY a JSON list of lists. No extra text.
-            """
-
-            response = model.generate_content([prompt, img])
-            data_list = safe_json_load(response.text)
-
-            if data_list:
-                clean = [[str(c) if c else "" for c in row] for row in data_list]
-                df = pd.DataFrame(clean)
-                st.success("✅ Invoice extracted!")
-                st.dataframe(df, use_container_width=True)
-
-                if sheet:
-                    sheet.append_rows(clean)
-                    st.toast("📡 Synced to Google Sheet")
-
-                # Excel export
-                out = BytesIO()
-                with pd.ExcelWriter(out, engine="xlsxwriter") as writer:
-                    df.to_excel(writer, index=False, header=False, sheet_name="Invoices")
-                    workbook = writer.book
-                    worksheet = writer.sheets["Invoices"]
-                    fmt = workbook.add_format({"border":1, "text_wrap":True})
-                    worksheet.set_column("A:I", 18, fmt)
-
-                st.download_button(
-                    "📥 Download Excel",
-                    out.getvalue(),
-                    file_name="DataSnap_GST.xlsx"
-                )
-            else:
-                st.error("❌ Could not read invoice. Try a clearer photo.")
+                        st.download_button("📥 Download V2 Accountant Excel", out.getvalue(), "DataSnap_V2_Pro.xlsx")
+                except Exception as e:
+                    st.error(f"Error: {e}")
