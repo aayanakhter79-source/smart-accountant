@@ -112,7 +112,7 @@ with t2:
         st.dataframe(df, use_container_width=True)
 
         
-        # ---------------- NEW & IMPROVED EXCEL EXPORT ----------------
+       # ---------------- PROFESSIONAL EXCEL EXPORT V4 ----------------
         output = BytesIO()
         with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
             # 1. Detailed Invoice Sheet
@@ -122,10 +122,10 @@ with t2:
             party_summary = df.groupby("Party Name")[["Taxable Value", "CGST", "SGST", "IGST", "Total"]].sum().reset_index()
             party_summary.to_excel(writer, index=False, sheet_name="Party_Summary")
             
-            # 3. Final Report Summary (Accountant Special)
+            # 3. Final Report Summary
             summary_data = {
-                "Description": ["Shop Name", "Report Month", "Total Invoices", "Total Taxable Value", "Total GST", "Grand Total"],
-                "Value": [
+                "Report Parameter": ["Shop Name", "Report Month", "Total Invoices", "Total Taxable Value", "Total GST", "Grand Total"],
+                "Details/Values": [
                     shop_name, 
                     month, 
                     len(df), 
@@ -137,22 +137,32 @@ with t2:
             summary_df = pd.DataFrame(summary_data)
             summary_df.to_excel(writer, index=False, sheet_name="Overall_Summary")
 
-            # Workbook formatting for better look
+            # --- FORMATTING MAGIC ---
             workbook  = writer.book
-            worksheet = writer.sheets['Overall_Summary']
-            header_format = workbook.add_format({'bold': True, 'bg_color': '#D7E4BC', 'border': 1})
-            
-            # Column width adjust karna taaki text kate nahi
-            for i, col in enumerate(summary_df.columns):
-                worksheet.set_column(i, i, 20)
+            header_fmt = workbook.add_format({'bold': True, 'font_color': 'white', 'bg_color': '#4F81BD', 'border': 1})
+            num_fmt = workbook.add_format({'num_format': '₹ #,##0.00', 'border': 1})
+            border_fmt = workbook.add_format({'border': 1})
+
+            # Formatting Har Sheet ke liye
+            for sheet_name in ["Invoice_Details", "Party_Summary", "Overall_Summary"]:
+                ws = writer.sheets[sheet_name]
+                curr_df = df if sheet_name=="Invoice_Details" else (party_summary if sheet_name=="Party_Summary" else summary_df)
+                
+                # Headers Format karna
+                for col_num, value in enumerate(curr_df.columns.values):
+                    ws.write(0, col_num, value, header_fmt)
+                    ws.set_column(col_num, col_num, 22) # Column width set karna
+                
+                # Filters lagana (Detailed and Party sheet pe)
+                if sheet_name != "Overall_Summary":
+                    ws.autofilter(0, 0, len(curr_df), len(curr_df.columns) - 1)
 
         st.download_button(
-            label="📥 Download Final GST Report (3 Sheets)",
+            label="📥 Download Professional GST Report (v4)",
             data=output.getvalue(),
-            file_name=f"GST_Report_{shop_name}.xlsx",
+            file_name=f"DataSnap_GST_{shop_name}.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )                
-              
+        )              
     else:
         st.info("Scanner tab mein photo upload karke scan karein.")
 
