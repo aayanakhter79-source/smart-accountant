@@ -69,11 +69,30 @@ with t1:
                 with st.spinner(f"Processing {file.name}..."):
                     image = Image.open(file)
                     prompt = """
-                    Extract GST invoice data. Return ONLY JSON list of objects:
-                    [{"Invoice No": "","Date": "","Party Name": "","GSTIN": "","HSN": "","Taxable Value": 0,"CGST": 0,"SGST": 0,"IGST": 0,"Total": 0}]
-                    """
-                    response = model.generate_content([prompt, image])
-                    data = safe_json(response.text)
+Extract all GST invoice details with 100% accuracy.
+Focus especially on the 'Party GSTIN' (The GST number of the supplier/party).
+
+Return ONLY a JSON list of objects:
+[
+ {
+  "Invoice No": "Search for Bill No/Inv No",
+  "Date": "Format: DD-MM-YYYY",
+  "Party Name": "Full Name of the Supplier",
+  "GSTIN": "Look for a 15-digit alphanumeric code starting with State Code (e.g., 09, 07, 19, etc.)",
+  "HSN": "Extract HSN code if available",
+  "Taxable Value": 0,
+  "CGST": 0,
+  "SGST": 0,
+  "IGST": 0,
+  "Total": 0
+ }
+]
+
+Rules:
+1. If GSTIN is present on the bill, you MUST extract it.
+2. Ensure all numeric values are numbers, not strings.
+3. No explanation, only JSON.
+""" 
                     
                     if data:
                         st.session_state.invoice_data.extend(data)
