@@ -111,20 +111,48 @@ with t2:
         st.subheader("📄 Item-wise Details")
         st.dataframe(df, use_container_width=True)
 
-        # Excel Export with 3 Sheets
+        
+        # ---------------- NEW & IMPROVED EXCEL EXPORT ----------------
         output = BytesIO()
         with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-            df.to_excel(writer, index=False, sheet_name="All_Invoices")
-            party_df.to_excel(writer, index=False, sheet_name="Party_Summary")
+            # 1. Detailed Invoice Sheet
+            df.to_excel(writer, index=False, sheet_name="Invoice_Details")
             
-            # Overall Summary Sheet
-            summary_df = pd.DataFrame({
-                "Report": ["Shop Name", "Month", "Total Bills", "Total Taxable", "Grand Total"],
-                "Details": [shop_name, month, len(df), df['Taxable Value'].sum(), df['Total'].sum()]
-            })
-            summary_df.to_excel(writer, index=False, sheet_name="Final_Summary")
+            # 2. Party-wise Summary Sheet
+            party_summary = df.groupby("Party Name")[["Taxable Value", "CGST", "SGST", "IGST", "Total"]].sum().reset_index()
+            party_summary.to_excel(writer, index=False, sheet_name="Party_Summary")
+            
+            # 3. Final Report Summary (Accountant Special)
+            summary_data = {
+                "Description": ["Shop Name", "Report Month", "Total Invoices", "Total Taxable Value", "Total GST", "Grand Total"],
+                "Value": [
+                    shop_name, 
+                    month, 
+                    len(df), 
+                    df["Taxable Value"].sum(), 
+                    (df["CGST"] + df["SGST"] + df["IGST"]).sum(), 
+                    df["Total"].sum()
+                ]
+            }
+            summary_df = pd.DataFrame(summary_data)
+            summary_df.to_excel(writer, index=False, sheet_name="Overall_Summary")
 
-        st.download_button("📥 Download Full GST Report (3 Sheets)", output.getvalue(), f"{shop_name}_Report.xlsx")
+            # Workbook formatting for better look
+            workbook  = writer.book
+            worksheet = writer.sheets['Overall_Summary']
+            header_format = workbook.add_format({'bold': True, 'bg_color': '#D7E4BC', 'border': 1})
+            
+            # Column width adjust karna taaki text kate nahi
+            for i, col in enumerate(summary_df.columns):
+                worksheet.set_column(i, i, 20)
+
+        st.download_button(
+            label="📥 Download Final GST Report (3 Sheets)",
+            data=output.getvalue(),
+            file_name=f"GST_Report_{shop_name}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )                
+              
     else:
         st.info("Scanner tab mein photo upload karke scan karein.")
 
