@@ -6,163 +6,159 @@ import json
 import gspread
 from google.oauth2.service_account import Credentials
 from io import BytesIO
+import re
 import time
 
 # --- CONFIG ---
-st.set_page_config(page_title="DataSnap AI - GST Agent", layout="wide")
+st.set_page_config(page_title="DataSnap AI - GST Agent V5", layout="wide")
 
-# Secrets se keys uthana
+# API Setup
 genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
 try:
-    all_m = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
-    model = genai.GenerativeModel('models/gemini-1.5-flash' if 'models/gemini-1.5-flash' in all_m else all_m[0])
-except: 
-    st.error("AI Model Error. Please check Gemini API Key.")
 
-# --- GOOGLE SHEETS SETUP ---
+    all_m = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
+
+    model = genai.GenerativeModel('models/gemini-1.5-flash' if 'models/gemini-1.5-flash' in all_m else all_m[0])
+
+except: st.error("AI Error")
+
+
+# --- LOGIN SYSTEM ---
+def check_password():
+    if "password_correct" not in st.session_state:
+        st.session_state["password_correct"] = False
+
+    if not st.session_state["password_correct"]:
+        st.title("🔐 DataSnap Private Access")
+        pwd = st.text_input("Bhai, Access Password dalo:", type="password")
+        if st.button("Login"):
+            if pwd == st.secrets["APP_PASSWORD"]:
+                st.session_state["password_correct"] = True
+                st.rerun()
+            else:
+                st.error("😕 Galat Password hai bhai!")
+        return False
+    return True
+
+# --- GOOGLE SHEETS ---
 def get_gsheet():
     try:
         scope = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
         creds = Credentials.from_service_account_info(st.secrets["gcp_service_account"], scopes=scope)
         client = gspread.authorize(creds)
-        # Yahan .sheet1 ki jagah pehla worksheet uthayega taaki tab name ka issue na ho
         return client.open_by_key(st.secrets["GOOGLE_SHEET_ID"]).get_worksheet(0)
     except:
         return None
 
-# --- SESSION STATE ---
-if "invoice_data" not in st.session_state:
-    st.session_state.invoice_data = []
-
+# --- HELPER FUNCTIONS ---
 def safe_json(text):
-    # JSON extract karne ke liye clean up
-    text = text.replace("```json", "").replace("```", "").strip()
+    text = text.replace("```json","").replace("```","").strip()
     try:
         return json.loads(text)
     except:
         return None
 
-# --- UI ---
-st.title("🚀 DataSnap AI - GST Accountant Agent V3")
+def valid_gstin(g):
+    pattern = r'^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[A-Z0-9]{1}Z[A-Z0-9]{1}$'
+    return bool(re.match(pattern, str(g or "")))
 
-sheet = get_gsheet()
-
-# Sidebar for Shop Details
-with st.sidebar:
-    st.header("🏢 Business Profile")
-    shop_name = st.text_input("Shop Name", value="My Store")
-    month = st.text_input("Reporting Month", value="February 2026")
-    if st.button("Clear All Data"):
-        st.session_state.invoice_data = []
-        st.rerun()
-
-# Tabs
-t1, t2, t3 = st.tabs(["📤 Upload & Scan", "📊 Dashboard", "📜 History"])
-
-with t1:
-    files = st.file_uploader("Upload Invoices (Multiple Allowed)", type=["jpg","jpeg","png"], accept_multiple_files=True)
+# --- MAIN APP ---
+if check_password():
+    sheet = get_gsheet()
     
-    if st.button("📊 Start AI Processing"):
-        if files:
-            for file in files:
-                with st.spinner(f"Processing {file.name}..."):
-                    image = Image.open(file)
-                    
-                    # POWER PROMPT (Added GSTIN focus)
-                    prompt = """
-                    Extract all GST invoice details with 100% accuracy.
-                    Return ONLY a JSON list of objects:
-                    [{
-                      "Invoice No": "str",
-                      "Date": "DD-MM-YYYY",
-                      "Party Name": "str",
-                      "GSTIN": "15-digit alphanumeric code of Supplier",
-                      "HSN": "str",
-                      "Taxable Value": float,
-                      "CGST": float,
-                      "SGST": float,
-                      "IGST": float,
-                      "Total": float
-                    }]
-                    Rules: Extract Supplier GSTIN strictly. No explanation.
-                    """ 
-                    
-                    # --- AI GENERATION (Missing lines added back) ---
-                    response = model.generate_content([prompt, image])
-                    data = safe_json(response.text)
-                    
-                    if data:
-                        st.session_state.invoice_data.extend(data)
-                        if sheet:
-                            for d in data:
-                                try:
-                                    sheet.append_row(list(d.values()))
-                                except Exception as e:
-                                    st.error(f"Sheet Append Error: {e}")
-                    else:
-                        st.error(f"AI couldn't read {file.name} properly.")
-                        
-                    time.sleep(1) # Rate limit protection
-            st.success("✅ All Invoices Processed!")
-        else:
-            st.warning("Pehle photo toh upload karo bhai!")
+    if "invoice_data" not in st.session_state:
+        st.session_state.invoice_data = []
 
-with t2:
-    if st.session_state.invoice_data:
-        df = pd.DataFrame(st.session_state.invoice_data)
-        
-        # Clean Data
-        num_cols = ["Taxable Value","CGST","SGST","IGST","Total"]
-        for c in num_cols:
-            if c in df.columns:
+    st.title("🚀 DataSnap AI - GST Filing Ready V5")
+
+    with st.sidebar:
+        st.header("🏢 Business Profile")
+        shop_name = st.text_input("Shop Name", "My Store")
+        month = st.text_input("Month", "Feb 2026")
+        if st.button("Clear All Data"):
+            st.session_state.invoice_data = []
+            st.rerun()
+        if st.button("Logout"):
+            st.session_state["password_correct"] = False
+            st.rerun()
+
+    t1, t2 = st.tabs(["📤 Upload & Scan", "📊 Smart Dashboard"])
+
+    # ---------------- UPLOAD TAB ----------------
+    with t1:
+        files = st.file_uploader("Upload GST Invoices", type=["jpg","jpeg","png"], accept_multiple_files=True)
+
+        if st.button("Start AI Processing"):
+            if files:
+                for file in files:
+                    with st.spinner(f"Processing {file.name}..."):
+                        img = Image.open(file)
+                        prompt = """
+                        You are an Indian GST expert AI. Extract details from this Indian invoice.
+                        Return ONLY JSON list:
+                        [{
+                        "Invoice No":"", "Date":"", "Party Name":"", "GSTIN":"",
+                        "HSN":"", "Taxable Value":0, "CGST":0, "SGST":0, "IGST":0, "Total":0
+                        }]
+                        Rules: Extract Supplier GSTIN. If CGST/SGST missing but IGST present, extract accordingly.
+                        """
+                        response = model.generate_content([prompt, img])
+                        data = safe_json(response.text)
+
+                        if data:
+                            st.session_state.invoice_data.extend(data)
+                            if sheet:
+                                for d in data:
+                                    sheet.append_row(list(d.values()))
+                        time.sleep(1)
+                st.success("✅ Saare bills scan ho gaye!")
+            else:
+                st.warning("Pehle file toh dalo!")
+
+    # ---------------- DASHBOARD TAB ----------------
+    with t2:
+        if st.session_state.invoice_data:
+            df = pd.DataFrame(st.session_state.invoice_data)
+
+            # Data Cleaning & Logic
+            num_cols = ["Taxable Value","CGST","SGST","IGST","Total"]
+            for c in num_cols:
                 df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0)
 
-        # Metrics
-        c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Invoices", len(df))
-        c2.metric("Taxable Amt", f"₹{df['Taxable Value'].sum():,.2f}")
-        c3.metric("Total Tax", f"₹{(df['CGST']+df['SGST']+df['IGST']).sum():,.2f}")
-        c4.metric("Grand Total", f"₹{df['Total'].sum():,.2f}")
+            df["Duplicate"] = df.duplicated(subset=["Invoice No","Date"], keep=False)
+            df["GSTIN Valid"] = df["GSTIN"].apply(valid_gstin)
+            df["Invoice Type"] = df["GSTIN"].apply(lambda x: "B2B" if valid_gstin(x) else "B2C")
 
-        # Party-wise Summary
-        st.subheader("👥 Party-wise Summary")
-        party_df = df.groupby("Party Name")[["Taxable Value", "Total"]].sum().reset_index()
-        st.table(party_df)
+            # Metrics
+            c1,c2,c3,c4 = st.columns(4)
+            c1.metric("Total Invoices", len(df))
+            c2.metric("Taxable Amt", f"₹{df['Taxable Value'].sum():,.2f}")
+            c3.metric("Total GST", f"₹{(df['CGST']+df['SGST']+df['IGST']).sum():,.2f}")
+            c4.metric("Grand Total", f"₹{df['Total'].sum():,.2f}")
 
-        # Detailed Table
-        st.subheader("📄 Item-wise Details")
-        st.dataframe(df, use_container_width=True)
+            # Alerts
+            if df["Duplicate"].any() or not df["GSTIN Valid"].all():
+                st.warning(f"⚠️ Dhayan dein: {df['Duplicate'].sum()} Duplicate bills aur {(~df['GSTIN Valid']).sum()} Invalid GSTIN mile hain!")
 
-        # Excel Export Logic
-        output = BytesIO()
-        with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-            df.to_excel(writer, index=False, sheet_name="Invoice_Details")
-            
-            party_summary = df.groupby("Party Name")[["Taxable Value", "CGST", "SGST", "IGST", "Total"]].sum().reset_index()
-            party_summary.to_excel(writer, index=False, sheet_name="Party_Summary")
-            
-            summary_df = pd.DataFrame({
-                "Parameter": ["Shop", "Month", "Count", "Taxable", "GST", "Total"],
-                "Value": [shop_name, month, len(df), df["Taxable Value"].sum(), (df["CGST"]+df["SGST"]+df["IGST"]).sum(), df["Total"].sum()]
-            })
-            summary_df.to_excel(writer, index=False, sheet_name="Overall_Summary")
-            
-            # Formatting
-            workbook = writer.book
-            header_fmt = workbook.add_format({'bold': True, 'bg_color': '#4F81BD', 'font_color': 'white'})
-            for sn in ["Invoice_Details", "Party_Summary", "Overall_Summary"]:
-                ws = writer.sheets[sn]
-                ws.set_column('A:Z', 18)
+            st.subheader("📝 Live Data Preview")
+            st.dataframe(df, use_container_width=True)
 
-        st.download_button(label="📥 Download Professional GST Report", data=output.getvalue(), file_name=f"GST_Report_{shop_name}.xlsx")
-    else:
-        st.info("Scanner tab mein photo upload karke scan karein.")
+            # Excel Export
+            b2b = df[df["Invoice Type"]=="B2B"]
+            b2c = df[df["Invoice Type"]=="B2C"]
 
-with t3:
-    st.subheader("📜 History (Direct from Sheet)")
-    if sheet:
-        try:
-            history = pd.DataFrame(sheet.get_all_records())
-            st.dataframe(history.iloc[::-1], use_container_width=True)
-        except:
-            st.info("Sheet khali hai ya connect nahi hui.")
+            output = BytesIO()
+            with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
+                df.to_excel(writer, index=False, sheet_name="All_Invoices")
+                b2b.to_excel(writer, index=False, sheet_name="B2B_Report")
+                b2c.to_excel(writer, index=False, sheet_name="B2C_Report")
+                
+                summary_df = pd.DataFrame({
+                    "Metric": ["Shop", "Month", "Total Bills", "Taxable", "GST", "Total"],
+                    "Value": [shop_name, month, len(df), df["Taxable Value"].sum(), (df["CGST"]+df["SGST"]+df["IGST"]).sum(), df["Total"].sum()]
+                })
+                summary_df.to_excel(writer, index=False, sheet_name="Summary")
+
+            st.download_button("📥 Download GSTR-Ready Excel", output.getvalue(), file_name=f"DataSnap_{shop_name}_{month}.xlsx")
+        else:
+            st.info("Pehle Upload tab mein bills scan karein.")
