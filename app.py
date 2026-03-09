@@ -24,63 +24,59 @@ def safe_json(text):
     try: return json.loads(text)
     except: return None
 
-# --- AGENTIC ENGINE ---
-def process_with_ai(img, context="Image Data"):
-    prompt = f"""
-    Analyze this {context} for an Indian Freelancer. 
-    Return ONLY JSON:
-    {{
-      "InvoiceNo": "str", "Date": "DD-MM-YYYY", "Party": "str",
-      "Currency": "INR/USD", "Amount_INR": 0.0, "GST_Amount": 0.0,
-      "TDS_Suggestion": "str", "AI_Note": "Why?"
-    }}
+# --- AGENTIC ENGINE (THE BRAIN) ---
+def freelancer_agent_process(img):
+    # Prompt upgraded for USD detection + Clean fields for GPT's fix
+    prompt = """
+    You are an Expert AI Tax Agent for Indian Freelancers. 
+    Analyze the document and return ONLY a JSON object.
+    
+    TASKS:
+    1. Detect Currency (INR, USD, EUR, etc.).
+    2. If Currency is NOT INR, convert Amount_Original to Amount_INR (Use approx rate: 1 USD = 83 INR, 1 EUR = 90 INR).
+    3. Calculate GST_Amount (18% for services if INR/Domestic).
+    4. Provide TDS_Suggestion (e.g., '10% u/s 194J' for professional fees).
+    5. Reasoning: Explain WHY you categorized it this way.
+
+    STRICT JSON STRUCTURE:
+    {
+      "InvoiceNo": "str",
+      "Date": "DD-MM-YYYY",
+      "Party": "str",
+      "Currency": "USD/INR",
+      "Amount_Original": 0.0,
+      "Amount_INR": 0.0,
+      "GST_Amount": 0.0,
+      "TDS_Suggestion": "str",
+      "AI_Note": "str"
+    }
     """
     response = model.generate_content([prompt, img])
     return safe_json(response.text)
 
-# --- MAIN APP ---
-st.title("🤖 DataSnap 2.0: Hybrid Tax Agent")
-
-if "invoice_data" not in st.session_state:
-    st.session_state.invoice_data = []
-
-t1, t2 = st.tabs(["📤 Upload (Image/CSV)", "📊 Tax Dashboard"])
-
-with t1:
-    # Yahan humne type mein CSV aur Excel bhi add kar diya hai
-    files = st.file_uploader("Upload Files", type=["jpg","png","jpeg","csv","xlsx"], accept_multiple_files=True)
-    
-    if st.button("🚀 Run Agentic Audit"):
-        if files:
-            for file in files:
-                with st.spinner(f"Processing {file.name}..."):
-                    # CHECK FILE TYPE
-                    if file.name.endswith(('.csv', '.xlsx')):
-                        # CSV/Excel Logic
-                        if file.name.endswith('.csv'):
-                            df_temp = pd.read_csv(file)
-                        else:
-                            df_temp = pd.read_excel(file)
-                        
-                        st.info(f"📁 CSV/Excel detected. Analyzing first 5 rows...")
-                        # AI ko CSV ka text bhej rahe hain analysis ke liye
-                        csv_text = df_temp.head(10).to_string()
-                        result = process_with_ai(f"Data Sample: {csv_text}", context="Table Data")
-                    else:
-                        # Image Logic
-                        img = Image.open(file)
-                        result = process_with_ai(img, context="Image")
-
-                    if result:
-                        st.session_state.invoice_data.append(result)
-            st.success("Audit Complete!")
-
+# --- UPDATED DASHBOARD (T2) FOR CLEAN EXCEL ---
 with t2:
     if st.session_state.invoice_data:
+        # GPT Fix: Converting list of JSONs into a CLEAN Table
         df = pd.DataFrame(st.session_state.invoice_data)
-        st.subheader("📝 Audited Ledger")
+        
+        # Ensure column order is perfect for the client
+        cols = ["InvoiceNo", "Date", "Party", "Currency", "Amount_Original", "Amount_INR", "GST_Amount", "TDS_Suggestion", "AI_Note"]
+        df = df[reindex(columns=cols, fill_value=0)] # Ensuring no missing columns
+
+        st.subheader("📊 Professional Tax Ledger (CA-Ready)")
         st.dataframe(df, use_container_width=True)
         
+        # EXCEL EXPORT FIX: Proper Table format, not JSON strings
         output = BytesIO()
-        df.to_excel(output, index=False)
-        st.download_button("📥 Export for CA", output.getvalue(), file_name="Tax_Audit.xlsx")
+        with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+            df.to_excel(writer, index=False, sheet_name='Tax_Audit_Report')
+            
+            # Formatting (Clean look for client)
+            workbook = writer.book
+            header_format = workbook.add_format({'bold': True, 'bg_color': '#D7E4BC', 'border': 1})
+            worksheet = writer.sheets['Tax_Audit_Report']
+            for col_num, value in enumerate(df.columns.values):
+                worksheet.write(0, col_num, value, header_format)
+        
+        st.download_button("📥 Download Professional Report", output.getvalue(), file_name="Zenith_Tax_Report.xlsx")
