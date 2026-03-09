@@ -95,25 +95,49 @@ with t1:
             st.success("Audit Cycle Complete!")
 
 with t2:
+    st.write("### 📊 Zenith IN: Professional Tax Ledger")
     if st.session_state.invoice_data:
-        # DATA CLEANING: Ensure only dicts are processed
         clean_list = [x for x in st.session_state.invoice_data if isinstance(x, dict)]
-        
         if clean_list:
             df = pd.DataFrame(clean_list)
             
-            # Column management
+            # 1. Column Order Setup
             cols = ["InvoiceNo", "Date", "Party", "Currency", "Amount_Original", "Amount_INR", "GST_Amount", "TDS_Suggestion", "AI_Note"]
             for c in cols:
                 if c not in df.columns: df[c] = "N/A"
             
-            st.dataframe(df[cols], use_container_width=True)
+            # 2. THE FIX: Column Configuration for Clarity
+            st.data_editor(
+                df[cols],
+                column_config={
+                    "InvoiceNo": st.column_config.TextColumn("Invoice #", width="small"),
+                    "Date": st.column_config.TextColumn("Date", width="small"),
+                    "Party": st.column_config.TextColumn("Client/Vendor", width="medium"),
+                    "Currency": st.column_config.TextColumn("Curr.", width="extrasmall"),
+                    "Amount_Original": st.column_config.NumberColumn("Original Amt", format="%.2f"),
+                    "Amount_INR": st.column_config.NumberColumn("Amt (INR)", format="₹%.2f", width="medium"),
+                    "GST_Amount": st.column_config.NumberColumn("GST (18%)", format="₹%.2f"),
+                    "TDS_Suggestion": st.column_config.TextColumn("TDS Logic", width="medium"),
+                    "AI_Note": st.column_config.TextColumn("AI Auditor Remarks", width="large"), # Remarks ko bada rakha hai
+                },
+                hide_index=True,
+                use_container_width=True,
+                key="zenith_editor"
+            )
             
-            # Export
+            # 3. Enhanced Excel Export
             output = BytesIO()
-            df[cols].to_excel(output, index=False)
-            st.download_button("📥 Download Excel Report", output.getvalue(), "Zenith_Report.xlsx")
+            with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+                df[cols].to_excel(writer, index=False, sheet_name='Zenith_Tax_Report')
+                # Auto-adjust columns in Excel too
+                worksheet = writer.sheets['Zenith_Tax_Report']
+                for idx, col in enumerate(cols):
+                    series = df[col].astype(str)
+                    max_len = max(series.map(len).max(), len(col)) + 2
+                    worksheet.set_column(idx, idx, max_len)
+            
+            st.download_button("📥 Download CA-Ready Excel Report", output.getvalue(), "Zenith_Audit_Report.xlsx")
         else:
-            st.info("No valid data processed yet.")
+            st.info("No valid data found.")
     else:
-        st.info("Upload tab mein bills process karein.")
+        st.info("Upload tab mein files process karein.")
