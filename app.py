@@ -9,22 +9,12 @@ from io import BytesIO
 st.set_page_config(page_title="Zenith IN - DataSnap AI", layout="wide")
 
 # API Setup
+# --- API Setup (Correct Indentation) ---
 try:
-    if "GEMINI_API_KEY" not in st.secrets:
-        st.error("⚠️ Streamlit Secrets mein 'GEMINI_API_KEY' missing hai!")
-    else:
-        genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
-        try:
-
-    all_m = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
-
-    model = genai.GenerativeModel('models/gemini-1.5-flash' if 'models/gemini-1.5-flash' in all_m else all_m[0])
-
-except: st.error("AI Error")
-
+   	 all_m = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
+   	 model = genai.GenerativeModel('gemini-1.5-flash' if 'models/gemini-1.5-flash' in all_m else all_m[0])
 except Exception as e:
-    st.error(f"⚠️ Setup Error: {e}")
-
+    st.error(f"⚠️ AI Setup Error: {e}")
 # --- 2. ROBUST HELPERS ---
 def safe_json(text):
     """AI ke kachre ko saaf karke pure JSON nikalta hai"""
