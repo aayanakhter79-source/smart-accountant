@@ -9,20 +9,13 @@ import re
 # --- 1. CONFIG & SETUP ---
 st.set_page_config(page_title="Zenith IN - DataSnap AI", layout="wide")
 
-# API Setup (Make sure GEMINI_API_KEY is in your Streamlit Secrets)
+# API Setup
+try:
     genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
-    try:
-
     all_m = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
-
-    model = genai.GenerativeModel('models/gemini-1.5-flash' if 'models/gemini-1.5-flash' in all_m else all_m[0])
-
-except: st.error("AI Error")
-
-
-except:
-    st.error("⚠️ API Key nahi mil rahi! Streamlit Secrets check karo.")
-
+    model = genai.GenerativeModel('gemini-1.5-flash' if 'models/gemini-1.5-flash' in all_m else all_m[0])
+except Exception as e:
+    st.error(f"⚠️ API/Setup Error: {e}. Check Streamlit Secrets!")
 # --- 2. HELPERS ---
 def safe_json(text):
     text = text.replace("```json","").replace("```","").strip()
