@@ -93,51 +93,54 @@ with t1:
                     else:
                         st.error(f"❌ AI couldn't read {file.name} properly.")
             st.success("Audit Cycle Complete!")
-
 with t2:
     st.write("### 📊 Zenith IN: Professional Tax Ledger")
-    if st.session_state.invoice_data:
-        clean_list = [x for x in st.session_state.invoice_data if isinstance(x, dict)]
-        if clean_list:
-            df = pd.DataFrame(clean_list)
-            
-            # 1. Column Order Setup
+    
+    # Check if data exists and is not just empty/N/A
+    if "invoice_data" in st.session_state and len(st.session_state.invoice_data) > 0:
+        df = pd.DataFrame(st.session_state.invoice_data)
+        
+        # 1. Clean data: Remove rows where everything is N/A
+        df = df.replace("N/A", None).dropna(how='all')
+        
+        if not df.empty:
+            # Column Order
             cols = ["InvoiceNo", "Date", "Party", "Currency", "Amount_Original", "Amount_INR", "GST_Amount", "TDS_Suggestion", "AI_Note"]
             for c in cols:
                 if c not in df.columns: df[c] = "N/A"
-            
-            # 2. THE FIX: Column Configuration for Clarity
+
+            # 2. THE FIX: Spread out the columns (Width Fix)
             st.data_editor(
                 df[cols],
                 column_config={
-                    "InvoiceNo": st.column_config.TextColumn("Invoice #", width="small"),
+                    "InvoiceNo": st.column_config.TextColumn("Inv #", width="small"),
                     "Date": st.column_config.TextColumn("Date", width="small"),
-                    "Party": st.column_config.TextColumn("Client/Vendor", width="medium"),
-                    "Currency": st.column_config.TextColumn("Curr.", width="extrasmall"),
-                    "Amount_Original": st.column_config.NumberColumn("Original Amt", format="%.2f"),
-                    "Amount_INR": st.column_config.NumberColumn("Amt (INR)", format="₹%.2f", width="medium"),
+                    "Party": st.column_config.TextColumn("Client Name", width="medium"),
+                    "Currency": st.column_config.TextColumn("Unit", width="extrasmall"),
+                    "Amount_Original": st.column_config.NumberColumn("Original"),
+                    "Amount_INR": st.column_config.NumberColumn("INR Value", format="₹%.2f"),
                     "GST_Amount": st.column_config.NumberColumn("GST (18%)", format="₹%.2f"),
                     "TDS_Suggestion": st.column_config.TextColumn("TDS Logic", width="medium"),
-                    "AI_Note": st.column_config.TextColumn("AI Auditor Remarks", width="large"), # Remarks ko bada rakha hai
+                    "AI_Note": st.column_config.TextColumn("Audit Remarks", width="large"),
                 },
                 hide_index=True,
-                use_container_width=True,
-                key="zenith_editor"
+                use_container_width=True
             )
-            
-            # 3. Enhanced Excel Export
+
+            # 3. Excel Download with Auto-Fit (No more narrow cells)
             output = BytesIO()
             with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-                df[cols].to_excel(writer, index=False, sheet_name='Zenith_Tax_Report')
-                # Auto-adjust columns in Excel too
-                worksheet = writer.sheets['Zenith_Tax_Report']
-                for idx, col in enumerate(cols):
-                    series = df[col].astype(str)
-                    max_len = max(series.map(len).max(), len(col)) + 2
-                    worksheet.set_column(idx, idx, max_len)
+                df[cols].to_excel(writer, index=False, sheet_name='Zenith_Audit')
+                workbook = writer.book
+                worksheet = writer.sheets['Zenith_Audit']
+                
+                # Auto-adjust column width logic
+                for i, col in enumerate(cols):
+                    column_len = max(df[col].astype(str).map(len).max(), len(col)) + 2
+                    worksheet.set_column(i, i, column_len)
             
-            st.download_button("📥 Download CA-Ready Excel Report", output.getvalue(), "Zenith_Audit_Report.xlsx")
+            st.download_button("📥 Download Final Report", output.getvalue(), "Zenith_Audit_Fixed.xlsx")
         else:
-            st.info("No valid data found.")
+            st.warning("⚠️ Data process toh hua par empty reh gaya. Dobara try karein.")
     else:
-        st.info("Upload tab mein files process karein.")
+        st.info("Bhai, pehle 'Upload' tab mein jaake files process karo!")
