@@ -10,7 +10,6 @@ import re
 st.set_page_config(page_title="Zenith IN - DataSnap AI", layout="wide")
 
 # API Setup (Make sure GEMINI_API_KEY is in your Streamlit Secrets)
-
     genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
     try:
 
