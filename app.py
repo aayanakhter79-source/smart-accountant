@@ -6,141 +6,106 @@ import json
 from io import BytesIO
 
 # --- 1. CONFIG & SETUP ---
-st.set_page_config(page_title="Zenith IN - DataSnap AI", layout="wide")
+st.set_page_config(page_title="Zenith IN - DataSnap Pro", layout="wide")
 
-# API Setup
-# --- API Setup (Correct Indentation) ---
+# API Setup (Direct model call for stability as per Google AI suggestion)
 try:
-   	 all_m = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
-   	 model = genai.GenerativeModel('gemini-1.5-flash' if 'models/gemini-1.5-flash' in all_m else all_m[0])
-except Exception as e:
-    st.error(f"⚠️ AI Setup Error: {e}")
-# --- 2. ROBUST HELPERS ---
+    genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
+     all_m = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
+
+    model = genai.GenerativeModel('models/gemini-1.5-flash' if 'models/gemini-1.5-flash' in all_m else all_m[0])
+
+except: st.error("AI Error")
+
+# --- 2. HELPERS ---
 def safe_json(text):
-    """AI ke kachre ko saaf karke pure JSON nikalta hai"""
     try:
-        # Markdown blocks hatao
         clean_text = text.replace("```json", "").replace("```", "").strip()
         data = json.loads(clean_text)
-        # Agar AI ne list bhej di [{}], toh pehla element lo
-        if isinstance(data, list) and len(data) > 0:
-            return data[0]
-        return data if isinstance(data, dict) else None
-    except:
-        return None
+        return data[0] if isinstance(data, list) else data
+    except: return None
 
-# --- 3. AGENTIC BRAIN ---
-def agent_process(input_data, is_image=True):
-    prompt = """
+# --- 3. AGENTIC BRAIN (Updated with Export & PDF Logic) ---
+def agent_process(input_file, is_data=False, exchange_rate=83.0):
+    # Prompt updated for Export/LUT logic (Point #3)
+    prompt = f"""
     You are the Zenith IN AI Tax Agent. 
-    Analyze the provided invoice/data and return ONLY a single JSON object.
+    Analyze the document and return ONLY a JSON object.
     
-    FIELDS TO EXTRACT:
-    - InvoiceNo, Date (DD-MM-YYYY), Party (Name).
-    - Currency (Detect if USD, INR, EUR, etc.).
-    - Amount_Original (Value in original currency).
-    - Amount_INR (If Currency is NOT INR, convert at 1 USD = 83 INR, 1 EUR = 90 INR).
-    - GST_Amount (18% of Amount_INR if Party/Service is Indian, else 0.0).
-    - TDS_Suggestion (Suggest TDS section like 194J - 10% for professional fees).
-    - AI_Note (Brief reasoning for your choice).
+    LOGIC RULES:
+    1. If Currency is NOT INR, set GST_Amount to 0.0 and mention 'Export of Service/LUT' in AI_Note.
+    2. Convert Amount_Original to INR using the rate: {exchange_rate}.
+    3. Categorize Indian payments under 18% GST and suggest TDS (e.g., 194J).
 
-    STRICT JSON STRUCTURE EXAMPLE:
-    {"InvoiceNo": "INV-001", "Date": "01-01-2026", "Party": "Name", "Currency": "USD", "Amount_Original": 100.0, "Amount_INR": 8300.0, "GST_Amount": 0.0, "TDS_Suggestion": "No TDS", "AI_Note": "Foreign payment"}
+    RETURN JSON:
+    {{"InvoiceNo": "str", "Date": "DD-MM-YYYY", "Party": "str", "Currency": "str", 
+      "Amount_Original": 0.0, "Amount_INR": 0.0, "GST_Amount": 0.0, 
+      "TDS_Suggestion": "str", "AI_Note": "str"}}
     """
     try:
-        if is_image:
-            response = model.generate_content([prompt, input_data])
+        if is_data:
+            response = model.generate_content(prompt + f"\nData: {input_file}")
         else:
-            response = model.generate_content(prompt + f"\nData Sample: {input_data}")
+            # Gemini 1.5 handles Images AND PDFs directly (Point #2)
+            # We pass the file bytes and mime type
+            file_bytes = input_file.getvalue()
+            mime_type = input_file.type
+            response = model.generate_content([
+                prompt, 
+                {'mime_type': mime_type, 'data': file_bytes}
+            ])
         return safe_json(response.text)
     except Exception as e:
-        st.error(f"AI Call failed: {e}")
+        st.error(f"Audit failed: {e}")
         return None
 
 # --- 4. MAIN INTERFACE ---
-st.title("🚀 Zenith IN: DataSnap 2.1")
-st.subheader("Autonomous Tax Agent for Creators")
+st.title("🚀 Zenith IN: DataSnap Pro")
 
 if "invoice_data" not in st.session_state:
     st.session_state.invoice_data = []
 
-# Sidebar
 with st.sidebar:
-    st.header("👤 Profile")
-    st.write("**Company:** Zenith IN")
-    if st.button("🗑️ Clear Dashboard"):
+    st.header("⚙️ Settings")
+    # Dynamic Exchange Rate (Point #1)
+    ex_rate = st.number_input("Today's USD to INR Rate", value=83.5, step=0.1)
+    st.divider()
+    st.write("**Founder:** Aayan Akhter")
+    if st.button("🗑️ Reset Ledger"):
         st.session_state.invoice_data = []
         st.rerun()
 
-t1, t2 = st.tabs(["📤 Upload", "📊 Dashboard"])
+t1, t2 = st.tabs(["📤 Smart Upload", "📊 Tax Ledger"])
 
 with t1:
-    files = st.file_uploader("Upload Images/CSV", type=["jpg","png","jpeg","csv","xlsx"], accept_multiple_files=True)
-    if st.button("📊 Audit with Zenith AI"):
+    # Added PDF to supported types (Point #2)
+    files = st.file_uploader("Upload Invoice (PDF, JPG, PNG, CSV)", 
+                            type=["pdf", "jpg", "png", "jpeg", "csv"], 
+                            accept_multiple_files=True)
+    
+    if st.button("📊 Run AI Audit"):
         if files:
             for file in files:
                 with st.spinner(f"Auditing {file.name}..."):
-                    if file.name.endswith(('.csv', '.xlsx')):
-                        df_raw = pd.read_csv(file) if file.name.endswith('.csv') else pd.read_excel(file)
-                        res = agent_process(df_raw.head(5).to_string(), is_image=False)
+                    if file.name.endswith('.csv'):
+                        df_raw = pd.read_csv(file)
+                        res = agent_process(df_raw.head(10).to_string(), is_data=True, exchange_rate=ex_rate)
                     else:
-                        img = Image.open(file)
-                        res = agent_process(img, is_image=True)
+                        # Handles PDF and Images
+                        res = agent_process(file, is_data=False, exchange_rate=ex_rate)
                     
-                    if res and isinstance(res, dict):
+                    if res:
                         st.session_state.invoice_data.append(res)
-                        st.toast(f"✅ Success: {file.name}")
-                    else:
-                        st.error(f"❌ AI couldn't read {file.name} properly.")
             st.success("Audit Cycle Complete!")
+
 with t2:
-    st.write("### 📊 Zenith IN: Professional Tax Ledger")
-    
-    # Check if data exists and is not just empty/N/A
-    if "invoice_data" in st.session_state and len(st.session_state.invoice_data) > 0:
+    if st.session_state.invoice_data:
         df = pd.DataFrame(st.session_state.invoice_data)
+        st.data_editor(df, use_container_width=True, hide_index=True)
         
-        # 1. Clean data: Remove rows where everything is N/A
-        df = df.replace("N/A", None).dropna(how='all')
-        
-        if not df.empty:
-            # Column Order
-            cols = ["InvoiceNo", "Date", "Party", "Currency", "Amount_Original", "Amount_INR", "GST_Amount", "TDS_Suggestion", "AI_Note"]
-            for c in cols:
-                if c not in df.columns: df[c] = "N/A"
-
-            # 2. THE FIX: Spread out the columns (Width Fix)
-            st.data_editor(
-                df[cols],
-                column_config={
-                    "InvoiceNo": st.column_config.TextColumn("Inv #", width="small"),
-                    "Date": st.column_config.TextColumn("Date", width="small"),
-                    "Party": st.column_config.TextColumn("Client Name", width="medium"),
-                    "Currency": st.column_config.TextColumn("Unit", width="extrasmall"),
-                    "Amount_Original": st.column_config.NumberColumn("Original"),
-                    "Amount_INR": st.column_config.NumberColumn("INR Value", format="₹%.2f"),
-                    "GST_Amount": st.column_config.NumberColumn("GST (18%)", format="₹%.2f"),
-                    "TDS_Suggestion": st.column_config.TextColumn("TDS Logic", width="medium"),
-                    "AI_Note": st.column_config.TextColumn("Audit Remarks", width="large"),
-                },
-                hide_index=True,
-                use_container_width=True
-            )
-
-            # 3. Excel Download with Auto-Fit (No more narrow cells)
-            output = BytesIO()
-            with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-                df[cols].to_excel(writer, index=False, sheet_name='Zenith_Audit')
-                workbook = writer.book
-                worksheet = writer.sheets['Zenith_Audit']
-                
-                # Auto-adjust column width logic
-                for i, col in enumerate(cols):
-                    column_len = max(df[col].astype(str).map(len).max(), len(col)) + 2
-                    worksheet.set_column(i, i, column_len)
-            
-            st.download_button("📥 Download Final Report", output.getvalue(), "Zenith_Audit_Fixed.xlsx")
-        else:
-            st.warning("⚠️ Data process toh hua par empty reh gaya. Dobara try karein.")
+        # Export logic
+        output = BytesIO()
+        df.to_excel(output, index=False)
+        st.download_button("📥 Download Business Report", output.getvalue(), "Zenith_Pro_Report.xlsx")
     else:
-        st.info("Bhai, pehle 'Upload' tab mein jaake files process karo!")
+        st.info("No data yet. Upload invoices to begin.")
