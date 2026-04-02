@@ -10,13 +10,14 @@ st.set_page_config(page_title="Zenith IN - DataSnap Pro", layout="wide")
 
 # API Setup (Direct model call for stability as per Google AI suggestion)
 try:
-    genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
-     all_m = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
-
-    model = genai.GenerativeModel('models/gemini-1.5-flash' if 'models/gemini-1.5-flash' in all_m else all_m[0])
-
-except: st.error("AI Error")
-
+    genai.configure(api_key=MY_API_KEY)
+    # Smart Model Selection
+    all_m = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
+    model_name = 'gemini-1.5-flash' if 'models/gemini-1.5-flash' in all_m else all_m[0].replace('models/', '')
+    model = genai.GenerativeModel(model_name)
+    st.success(f"Connected to: {model_name} ✅")
+except Exception as e:
+    st.error(f"AI Connection Error: {e}")
 # --- 2. HELPERS ---
 def safe_json(text):
     try:
